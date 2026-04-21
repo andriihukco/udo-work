@@ -366,7 +366,7 @@ function formatWeeklyReport(activities: TaskActivity[]): string {
     }
   }
   const lines = ['📆 *Активність за цей тиждень:*\n'];
-  for (const s of projectMap.values()) {
+  for (const s of Array.from(projectMap.values())) {
     lines.push(`📁 *${esc(s.projectName)}*\n   ⏱ ${formatTimeSpent(s.timeSpent)} (${s.taskCount} задач)\n`);
   }
   const totalMin = activities.reduce((s, a) => s + a.timeSpent.totalMinutes, 0);
