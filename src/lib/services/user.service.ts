@@ -52,6 +52,9 @@ export interface UserService {
   /** Updates a user's role. */
   updateRole(userId: string, role: UserRole): Promise<void>;
 
+  /** Updates a user's display name. */
+  updateFirstName(userId: string, firstName: string): Promise<void>;
+
   /**
    * Returns the best available display name for a user:
    *   1. first_name (if set)
@@ -292,6 +295,18 @@ export const userService: UserService = {
     }
   },
 
+  async updateFirstName(userId: string, firstName: string): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .update({ first_name: firstName })
+      .eq('id', userId);
+
+    if (error) {
+      logger.error('UserService.updateFirstName failed', error);
+      throw new DatabaseError('Failed to update user name');
+    }
+  },
+
   /**
    * Returns the most descriptive available name for a user:
    *   - first_name if non-null and non-empty
@@ -299,12 +314,8 @@ export const userService: UserService = {
    *   - telegram_id.toString() as a last resort
    */
   getDisplayName(user: User): string {
-    if (user.first_name) {
-      return user.first_name;
-    }
-    if (user.username) {
-      return `@${user.username}`;
-    }
-    return user.telegram_id.toString();
+    if (user.first_name) return user.first_name;
+    if (user.username) return `@${user.username}`;
+    return `ID ${user.telegram_id}`;
   },
 };

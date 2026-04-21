@@ -140,6 +140,20 @@ export async function route(
       return;
     }
 
+    if (state === 'awaiting_new_user_name') {
+      if (user.role !== 'admin') {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      if (text === '/skip') {
+        await sessionService.resetSession(user.id);
+        await telegramClient.sendMessage(chatId, '✅ Користувача додано без імені.', { reply_markup: ADMIN_MAIN_MENU });
+        return;
+      }
+      await adminHandlers.handleNewUserNameInput(ctx, text);
+      return;
+    }
+
     if (state === 'awaiting_task_name') {
       // Employee-only state
       if (user.role !== 'employee') {

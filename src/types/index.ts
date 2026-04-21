@@ -18,6 +18,7 @@ export type SessionState =
   | 'awaiting_deliverable_choice'
   | 'awaiting_new_admin_id'
   | 'awaiting_new_employee_id'
+  | 'awaiting_new_user_name'
   | 'awaiting_invite_project_select'
   | 'awaiting_invite_role_select';
 

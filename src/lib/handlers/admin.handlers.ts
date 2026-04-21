@@ -146,14 +146,18 @@ export async function handleEmployees(ctx: HandlerContext): Promise<void> {
   try {
     const employees = await userService.getAllEmployeesWithWeeklyTime();
     if (employees.length === 0) {
-      await reply(chatId, messageId, '👥 Співробітників не знайдено.', { reply_markup: ADMIN_MAIN_MENU });
+      await reply(chatId, messageId,
+        '👥 *Співробітники*\n\n📭 Жодного співробітника ще не додано.\n\nДодайте першого через *Управління користувачами*.',
+        { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
       return;
     }
-    const lines = ['👥 *Співробітники (поточний тиждень):*\n'];
+    const lines = [`👥 *Команда (${employees.length} осіб) — цей тиждень:*\n`];
     for (const emp of employees) {
       const name = userService.getDisplayName(emp);
       const t: TimeSpent = { hours: Math.floor(emp.weeklyMinutes / 60), minutes: emp.weeklyMinutes % 60, totalMinutes: emp.weeklyMinutes };
-      lines.push(`👤 *${esc(name)}:* ${formatTimeSpent(t)}`);
+      const timeStr = emp.weeklyMinutes === 0 ? '—' : formatTimeSpent(t);
+      const usernameStr = emp.username ? ` · @${emp.username}` : '';
+      lines.push(`👤 *${esc(name)}*${usernameStr}\n   ⏱ ${timeStr}`);
     }
     await reply(chatId, messageId, lines.join('\n'), {
       parse_mode: 'Markdown',
@@ -419,7 +423,6 @@ async function resolveUserFromMessage(message: TelegramMessage): Promise<{ teleg
   }
 
   // 3. Forward with privacy enabled — sender hid their identity
-  // forward_origin.type = 'hidden_user' or forward_sender_name is set
   if (
     message.forward_origin?.type === 'hidden_user' ||
     message.forward_sender_name ||
@@ -460,26 +463,33 @@ async function handleAddUserInput(ctx: HandlerContext, message: TelegramMessage,
   const resolved = await resolveUserFromMessage(message);
 
   if (!resolved) {
-    await telegramClient.sendMessage(chatId, MESSAGES.INVALID_TELEGRAM_ID, { reply_markup: backKeyboard });
+    await telegramClient.sendMessage(chatId,
+      `⚠️ *Не вдалося розпізнати користувача*\n\n` +
+      `Спробуйте один із варіантів:\n` +
+      `• Перешліть будь-яке повідомлення від цієї людини\n` +
+      `• Введіть їх @username\n` +
+      `• Введіть числовий Telegram ID\n\n` +
+      `_/cancel — скасувати_`,
+      { parse_mode: 'Markdown', reply_markup: backKeyboard });
     return;
   }
 
   if (resolved.telegramId === 0) {
     if (resolved.privacyBlocked) {
       const name = resolved.firstName ?? 'цей користувач';
-      await telegramClient.sendMessage(
-        chatId,
-        `🔒 *${esc(name)}* приховав свій профіль у налаштуваннях конфіденційності Telegram.\n\n` +
-        `Попросіть їх:\n1. Написати боту команду /start\n2. Або вимкнути "Пересилання повідомлень → Ніхто" у налаштуваннях Telegram\n\nАбо введіть їх числовий ID вручну.`,
-        { parse_mode: 'Markdown', reply_markup: backKeyboard },
-      );
+      await telegramClient.sendMessage(chatId,
+        `🔒 *${esc(name)}* приховав свій профіль у налаштуваннях Telegram.\n\n` +
+        `Попросіть їх:\n` +
+        `1️⃣ Написати боту /start\n` +
+        `2️⃣ Або вимкнути *Налаштування → Конфіденційність → Пересилання повідомлень → Ніхто*\n\n` +
+        `Після цього перешліть їхнє повідомлення сюди.\n\n` +
+        `_Або введіть їх числовий ID вручну._`,
+        { parse_mode: 'Markdown', reply_markup: backKeyboard });
     } else {
-      await telegramClient.sendMessage(
-        chatId,
-        `⚠️ Не вдалося отримати Telegram ID для @${resolved.username}.\n\n` +
+      await telegramClient.sendMessage(chatId,
+        `⚠️ Не вдалося отримати ID для *@${resolved.username}*\n\n` +
         `Попросіть цю людину написати боту /start, а потім перешліть їхнє повідомлення сюди.`,
-        { reply_markup: backKeyboard },
-      );
+        { parse_mode: 'Markdown', reply_markup: backKeyboard });
     }
     return;
   }
@@ -487,27 +497,82 @@ async function handleAddUserInput(ctx: HandlerContext, message: TelegramMessage,
   try {
     const existing = await userService.findByTelegramId(resolved.telegramId);
     if (existing) {
-      await telegramClient.sendMessage(
-        chatId,
-        `⚠️ Вже зареєстрований як *${existing.role === 'admin' ? 'адмін' : 'співробітник'}*: ${esc(userService.getDisplayName(existing))}`,
-        { parse_mode: 'Markdown', reply_markup: backKeyboard },
-      );
+      const roleLabel = existing.role === 'admin' ? '🔑 Адмін' : '👤 Співробітник';
+      const name = userService.getDisplayName(existing);
+      await telegramClient.sendMessage(chatId,
+        `ℹ️ *Вже зареєстрований*\n\n` +
+        `👤 ${esc(name)}\n` +
+        `${roleLabel}\n` +
+        `🆔 \`${existing.telegram_id}\``,
+        { parse_mode: 'Markdown', reply_markup: backKeyboard });
       return;
     }
 
-    await userService.createUser(resolved.telegramId, role, resolved.firstName, resolved.username);
-    await sessionService.resetSession(user.id);
+    const newUser = await userService.createUser(resolved.telegramId, role, resolved.firstName, resolved.username);
 
-    const displayName = resolved.firstName ?? (resolved.username ? `@${resolved.username}` : String(resolved.telegramId));
-    const msg = role === 'admin' ? MESSAGES.USER_ADDED_ADMIN(resolved.telegramId) : MESSAGES.USER_ADDED_EMPLOYEE(resolved.telegramId);
-    await telegramClient.sendMessage(chatId, `${msg}\n👤 ${esc(displayName)}`, {
-      parse_mode: 'Markdown',
-      reply_markup: ADMIN_MAIN_MENU,
-    });
+    // If no name was obtained, ask admin to provide one
+    if (!newUser.first_name && !newUser.username) {
+      await sessionService.setState(user.id, 'awaiting_new_user_name', {
+        pendingUserId: newUser.id,
+        pendingRole: role,
+      });
+      await telegramClient.sendMessage(chatId,
+        `✅ Користувача додано (ID: \`${resolved.telegramId}\`)\n\n` +
+        `📝 *Введіть ім'я для цього користувача*\n` +
+        `_(щоб він відображався зрозуміло в списках)_\n\n` +
+        `_Або /skip щоб пропустити_`,
+        { parse_mode: 'Markdown' });
+      return;
+    }
+
+    await sessionService.resetSession(user.id);
+    await showUserAddedConfirmation(chatId, newUser, role);
   } catch (err) {
     await sessionService.resetSession(user.id);
     await sendDbError(chatId, err);
   }
+}
+
+/** Called when admin types a name for a newly added nameless user. */
+export async function handleNewUserNameInput(ctx: HandlerContext, text: string): Promise<void> {
+  const { user, session, chatId } = ctx;
+  const sessionCtx = session.context as { pendingUserId?: string; pendingRole?: string } | null;
+
+  if (!sessionCtx?.pendingUserId) {
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: ADMIN_MAIN_MENU });
+    return;
+  }
+
+  try {
+    const name = text.trim();
+    await userService.updateFirstName(sessionCtx.pendingUserId, name);
+    await sessionService.resetSession(user.id);
+
+    const role = (sessionCtx.pendingRole ?? 'employee') as 'admin' | 'employee';
+    await telegramClient.sendMessage(chatId,
+      `✅ *Користувача успішно додано*\n\n` +
+      `👤 *${esc(name)}*\n` +
+      `${role === 'admin' ? '🔑 Адмін' : '👷 Співробітник'}\n\n` +
+      `Тепер вони можуть використовувати бот після команди /start`,
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
+  } catch (err) {
+    await sessionService.resetSession(user.id);
+    await sendDbError(chatId, err);
+  }
+}
+
+async function showUserAddedConfirmation(chatId: number, newUser: import('@/types/index').User, role: 'admin' | 'employee'): Promise<void> {
+  const name = userService.getDisplayName(newUser);
+  const roleLabel = role === 'admin' ? '🔑 Адмін' : '👷 Співробітник';
+  const usernameStr = newUser.username ? `\n@${newUser.username}` : '';
+  await telegramClient.sendMessage(chatId,
+    `✅ *Користувача успішно додано*\n\n` +
+    `👤 *${esc(name)}*${usernameStr}\n` +
+    `${roleLabel}\n` +
+    `🆔 \`${newUser.telegram_id}\`\n\n` +
+    `Тепер вони можуть використовувати бот після команди /start`,
+    { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
 }
 
 export async function handleRemoveAdmin(ctx: HandlerContext): Promise<void> {
@@ -539,10 +604,10 @@ export async function handleRemoveAdminConfirm(ctx: HandlerContext, targetUserId
       return;
     }
     await userService.deleteUser(targetUserId);
-    await reply(chatId, messageId, MESSAGES.ADMIN_REMOVED(esc(userService.getDisplayName(target))), {
-      parse_mode: 'Markdown',
-      reply_markup: ADMIN_MAIN_MENU,
-    });
+    const name = userService.getDisplayName(target);
+    await reply(chatId, messageId,
+      `✅ *${esc(name)}* видалено з системи.`,
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
   } catch (err) {
     await sendDbError(chatId, err);
   }

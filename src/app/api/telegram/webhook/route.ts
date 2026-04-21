@@ -109,6 +109,8 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
     return;
   }
 
+  // /skip is handled inside the router state machine — don't intercept here
+
   // Step 5: Handle /start — show role-appropriate main menu, or redeem invite
   if (update.message?.text?.startsWith('/start')) {
     const param = update.message.text.slice('/start'.length).trim();
