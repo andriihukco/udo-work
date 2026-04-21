@@ -84,8 +84,11 @@ export async function handleStartTask(ctx: HandlerContext): Promise<void> {
       await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: EMPLOYEE_MAIN_MENU });
       return;
     }
-    // Show only projects the employee is a member of
-    const projects = await membershipService.getProjectsForUser(user.id);
+    // Show projects the employee is a member of; fall back to all active projects
+    let projects = await membershipService.getProjectsForUser(user.id);
+    if (projects.length === 0) {
+      projects = await projectService.getActiveProjects();
+    }
     if (projects.length === 0) {
       await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: EMPLOYEE_MAIN_MENU });
       return;

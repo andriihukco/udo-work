@@ -62,43 +62,73 @@ export interface MembershipService {
 
 export const membershipService: MembershipService = {
   async getProjectsForUser(userId: string): Promise<Project[]> {
-    const { data, error } = await supabase
+    // Get project IDs for this user first, then fetch the projects
+    const { data: memberRows, error: memberError } = await supabase
       .from('project_members')
-      .select('project_id, projects!inner(id, name, is_active, created_at)')
-      .eq('user_id', userId)
-      .eq('projects.is_active', true);
+      .select('project_id')
+      .eq('user_id', userId);
+
+    if (memberError) {
+      logger.error('MembershipService.getProjectsForUser: members query failed', memberError);
+      throw new DatabaseError('Failed to fetch projects for user');
+    }
+
+    if (!memberRows || memberRows.length === 0) return [];
+
+    const projectIds = memberRows.map((r: any) => r.project_id);
+
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, name, is_active, created_at')
+      .in('id', projectIds)
+      .eq('is_active', true)
+      .order('name');
 
     if (error) {
-      logger.error('MembershipService.getProjectsForUser failed', error);
+      logger.error('MembershipService.getProjectsForUser: projects query failed', error);
       throw new DatabaseError('Failed to fetch projects for user');
     }
 
     return (data ?? []).map((row: any) => ({
-      id: row.projects.id,
-      name: row.projects.name,
-      is_active: row.projects.is_active,
-      created_at: row.projects.created_at,
+      id: row.id,
+      name: row.name,
+      is_active: row.is_active,
+      created_at: row.created_at,
     }));
   },
 
   async getMembersOfProject(projectId: string): Promise<User[]> {
-    const { data, error } = await supabase
+    const { data: memberRows, error: memberError } = await supabase
       .from('project_members')
-      .select('user_id, users!inner(id, telegram_id, role, first_name, username, created_at)')
+      .select('user_id')
       .eq('project_id', projectId);
 
+    if (memberError) {
+      logger.error('MembershipService.getMembersOfProject: members query failed', memberError);
+      throw new DatabaseError('Failed to fetch members of project');
+    }
+
+    if (!memberRows || memberRows.length === 0) return [];
+
+    const userIds = memberRows.map((r: any) => r.user_id);
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, telegram_id, role, first_name, username, created_at')
+      .in('id', userIds);
+
     if (error) {
-      logger.error('MembershipService.getMembersOfProject failed', error);
+      logger.error('MembershipService.getMembersOfProject: users query failed', error);
       throw new DatabaseError('Failed to fetch members of project');
     }
 
     return (data ?? []).map((row: any) => ({
-      id: row.users.id,
-      telegram_id: row.users.telegram_id,
-      role: row.users.role,
-      first_name: row.users.first_name,
-      username: row.users.username,
-      created_at: row.users.created_at,
+      id: row.id,
+      telegram_id: row.telegram_id,
+      role: row.role,
+      first_name: row.first_name,
+      username: row.username,
+      created_at: row.created_at,
     }));
   },
 
@@ -161,7 +191,7 @@ export const membershipService: MembershipService = {
   async redeemToken(token: string, userId: string): Promise<{ project: Project; role: 'admin' | 'employee' } | null> {
     const { data, error } = await supabase
       .from('invite_tokens')
-      .select('token, project_id, role, used_by, expires_at, used_at, projects!inner(id, name, is_active, created_at)')
+      .select('token, project_id, role, used_by, expires_at, used_at')
       .eq('token', token)
       .maybeSingle();
 
@@ -178,6 +208,18 @@ export const membershipService: MembershipService = {
     // Expired
     if (new Date(row.expires_at) < new Date()) return null;
 
+    // Fetch the project separately
+    const { data: projectData, error: projectError } = await supabase
+      .from('projects')
+      .select('id, name, is_active, created_at')
+      .eq('id', row.project_id)
+      .maybeSingle();
+
+    if (projectError || !projectData) {
+      logger.error('MembershipService.redeemToken: project not found', projectError);
+      return null;
+    }
+
     // Mark as used
     await supabase
       .from('invite_tokens')
@@ -185,10 +227,10 @@ export const membershipService: MembershipService = {
       .eq('token', token);
 
     const project: Project = {
-      id: row.projects.id,
-      name: row.projects.name,
-      is_active: row.projects.is_active,
-      created_at: row.projects.created_at,
+      id: projectData.id,
+      name: projectData.name,
+      is_active: projectData.is_active,
+      created_at: projectData.created_at,
     };
 
     return { project, role: row.role as 'admin' | 'employee' };
