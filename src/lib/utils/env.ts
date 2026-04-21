@@ -1,21 +1,13 @@
 /**
  * Environment variable validation module.
  *
- * Reads and validates all required environment variables at module load time.
- * Throws a descriptive error immediately if any required variable is missing,
- * so misconfiguration is caught at startup rather than at runtime.
+ * Exports typed getters for all required environment variables.
+ * Validation is deferred to runtime (first access) so that missing variables
+ * cause a clear runtime error rather than a build-time failure on Vercel.
  *
  * Requirements: 15.1
  */
 
-// ---------------------------------------------------------------------------
-// Validation helper
-// ---------------------------------------------------------------------------
-
-/**
- * Reads a required environment variable.
- * Throws a descriptive error if the variable is not set or is empty.
- */
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -23,49 +15,35 @@ function requireEnv(name: string): string {
       `Missing required environment variable: ${name}\n` +
         `Please set ${name} in your .env.local file (for local development) ` +
         `or in your Vercel project environment variables (for production).\n` +
-        `See README.md for the full list of required environment variables.`,
+        `See README.md for the full list of required environment variables.`
     );
   }
   return value;
 }
 
-// ---------------------------------------------------------------------------
-// Validated environment variable exports
-// ---------------------------------------------------------------------------
+/** Telegram Bot token obtained from @BotFather. */
+export const getTelegramBotToken = (): string => requireEnv('TELEGRAM_BOT_TOKEN');
 
-/**
- * Telegram Bot token obtained from @BotFather.
- * Used to authenticate all Telegram Bot API requests.
- */
-export const TELEGRAM_BOT_TOKEN: string = requireEnv('TELEGRAM_BOT_TOKEN');
+/** Secret token for webhook authentication. */
+export const getTelegramWebhookSecret = (): string => requireEnv('TELEGRAM_WEBHOOK_SECRET');
 
-/**
- * Secret token used to authenticate incoming webhook requests from Telegram.
- * Must match the value registered via the Telegram setWebhook API call.
- */
-export const TELEGRAM_WEBHOOK_SECRET: string = requireEnv('TELEGRAM_WEBHOOK_SECRET');
+/** Supabase project URL. */
+export const getSupabaseUrl = (): string => requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 
-/**
- * Supabase project URL (public, safe to expose to the browser).
- * Example: https://xyzcompany.supabase.co
- */
-export const SUPABASE_URL: string = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
+/** Supabase service role key (server-side only). */
+export const getSupabaseServiceRoleKey = (): string => requireEnv('SUPABASE_SERVICE_ROLE_KEY');
 
-/**
- * Supabase service role key (secret — server-side only).
- * Bypasses Row Level Security; must never be exposed to the browser.
- */
-export const SUPABASE_SERVICE_ROLE_KEY: string = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+/** Supabase Storage bucket name. */
+export const getSupabaseStorageBucket = (): string => requireEnv('SUPABASE_STORAGE_BUCKET');
 
-/**
- * Supabase Storage bucket name for task attachments.
- * Example: task-attachments
- */
-export const SUPABASE_STORAGE_BUCKET: string = requireEnv('SUPABASE_STORAGE_BUCKET');
+/** Public URL of the deployed application. */
+export const getAppUrl = (): string => requireEnv('NEXT_PUBLIC_APP_URL');
 
-/**
- * Public URL of the deployed application.
- * Used when registering the Telegram webhook via setWebhook.
- * Example: https://your-app.vercel.app
- */
-export const APP_URL: string = requireEnv('NEXT_PUBLIC_APP_URL');
+// Convenience re-exports for code that expects plain string constants.
+// These are evaluated lazily via getters so they don't throw at import time.
+export const TELEGRAM_BOT_TOKEN = getTelegramBotToken;
+export const TELEGRAM_WEBHOOK_SECRET = getTelegramWebhookSecret;
+export const SUPABASE_URL = getSupabaseUrl;
+export const SUPABASE_SERVICE_ROLE_KEY = getSupabaseServiceRoleKey;
+export const SUPABASE_STORAGE_BUCKET = getSupabaseStorageBucket;
+export const APP_URL = getAppUrl;
