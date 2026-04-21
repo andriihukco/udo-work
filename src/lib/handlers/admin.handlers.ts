@@ -1,14 +1,5 @@
 /**
  * Admin handlers for the Telegram Time Tracker bot.
- *
- * Implements all admin-facing conversation flows:
- *  - Create project (name input flow)
- *  - Deactivate project (project selection)
- *  - View employees with weekly hours
- *  - View employee detail (tasks for current week)
- *  - View tasks & logs (filter → list → detail)
- *  - Pagination for long lists
- *
  * Requirements: 2.1–2.4, 9.1–9.4, 10.1–10.5
  */
 
@@ -31,59 +22,46 @@ import {
   ADMIN_MAIN_MENU,
   MANAGE_USERS_KEYBOARD,
 } from '@/lib/telegram/keyboards';
-import { DuplicateProjectError, DatabaseError } from '@/types/index';
-import type {
-  HandlerContext,
-  TimeSpent,
-} from '@/types/index';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+import { DuplicateProjectError } from '@/types/index';
+import type { HandlerContext, TimeSpent, TelegramMessage } from '@/types/index';
 
 const PAGE_SIZE = 10;
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Sends a generic database error message to the user and logs the error.
- */
 async function sendDbError(chatId: number, err: unknown): Promise<void> {
   logger.error('Admin handler: database error', err);
   await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);
 }
 
-/**
- * Escapes special Markdown characters in user-provided strings to prevent
- * formatting issues in Telegram messages.
- */
-function escapeMarkdown(text: string): string {
-  return text.replace(/[_*`[\]]/g, '\\$&');
+function esc(text: string): string {
+  return text.replace(/[_*`[\]]/g, (c) => '\\' + c);
 }
 
-/**
- * Returns an emoji for a task status.
- */
-function getStatusEmoji(status: string): string {
-  switch (status) {
-    case 'in_progress': return '▶️';
-    case 'paused': return '⏸';
-    case 'completed': return '✅';
-    default: return '•';
-  }
+function statusEmoji(status: string): string {
+  return status === 'in_progress' ? '▶️' : status === 'paused' ? '⏸' : '✅';
 }
 
-/**
- * Returns a Ukrainian label for a task status.
- */
-function getStatusLabel(status: string): string {
-  switch (status) {
-    case 'in_progress': return 'В роботі';
-    case 'paused': return 'На паузі';
-    case 'completed': return 'Завершено';
-    default: return status;
+function statusLabel(status: string): string {
+  return status === 'in_progress' ? 'В роботі' : status === 'paused' ? 'На паузі' : 'Завершено';
+}
+
+/** Edit message if messageId present, otherwise send new. */
+async function reply(
+  chatId: number,
+  messageId: number | undefined,
+  text: string,
+  options: Parameters<typeof telegramClient.sendMessage>[2] = {},
+): Promise<void> {
+  if (messageId) {
+    await telegramClient.editMessageText(chatId, messageId, text, options).catch(async () => {
+      // If edit fails (e.g. message too old), fall back to new message
+      await telegramClient.sendMessage(chatId, text, options);
+    });
+  } else {
+    await telegramClient.sendMessage(chatId, text, options);
   }
 }
 
@@ -91,54 +69,29 @@ function getStatusLabel(status: string): string {
 // 2. Project management
 // ---------------------------------------------------------------------------
 
-/**
- * Entry point for the "create project" flow.
- * Sets session state to `awaiting_project_name` and prompts for a name.
- * Req 2.1
- */
 export async function handleCreateProject(ctx: HandlerContext): Promise<void> {
   const { user, chatId, messageId } = ctx;
-
   try {
     await sessionService.setState(user.id, 'awaiting_project_name');
-    const text = '📁 Введіть назву нового проєкту:';
-    if (messageId) {
-      await telegramClient.editMessageText(chatId, messageId, text);
-    } else {
-      await telegramClient.sendMessage(chatId, text);
-    }
+    await reply(chatId, messageId, '📁 Введіть назву нового проєкту:\n\n_Або натисніть /cancel для скасування_', {
+      parse_mode: 'Markdown',
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Called when the admin types a project name while in `awaiting_project_name` state.
- * Creates the project, sends success or duplicate error message, resets session.
- * Req 2.1, 2.2
- */
-export async function handleProjectNameInput(
-  ctx: HandlerContext,
-  text: string,
-): Promise<void> {
+export async function handleProjectNameInput(ctx: HandlerContext, text: string): Promise<void> {
   const { user, chatId } = ctx;
-
   try {
     const project = await projectService.createProject(text.trim());
-
     await sessionService.resetSession(user.id);
-
-    await telegramClient.sendMessage(
-      chatId,
-      MESSAGES.PROJECT_CREATED(project.name),
-      {
-        parse_mode: 'Markdown',
-        reply_markup: ADMIN_MAIN_MENU,
-      },
-    );
+    await telegramClient.sendMessage(chatId, MESSAGES.PROJECT_CREATED(esc(project.name)), {
+      parse_mode: 'Markdown',
+      reply_markup: ADMIN_MAIN_MENU,
+    });
   } catch (err) {
     if (err instanceof DuplicateProjectError) {
-      // Keep session in awaiting_project_name so admin can try again
       await telegramClient.sendMessage(chatId, MESSAGES.DUPLICATE_PROJECT);
     } else {
       await sessionService.resetSession(user.id);
@@ -147,70 +100,36 @@ export async function handleProjectNameInput(
   }
 }
 
-/**
- * Entry point for the "deactivate project" flow.
- * Fetches active projects and sends a project selection keyboard.
- * Req 2.3
- */
 export async function handleDeactivateProject(ctx: HandlerContext): Promise<void> {
   const { chatId, messageId } = ctx;
-
   try {
     const projects = await projectService.getActiveProjects();
-
     if (projects.length === 0) {
-      if (messageId) {
-        await telegramClient.editMessageText(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS);
-      } else {
-        await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_PROJECTS);
-      }
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: ADMIN_MAIN_MENU });
       return;
     }
-
-    const text = '🚫 Оберіть проєкт для деактивації:';
-    if (messageId) {
-      await telegramClient.editMessageText(chatId, messageId, text, {
-        reply_markup: buildProjectKeyboard(projects),
-      });
-    } else {
-      await telegramClient.sendMessage(chatId, text, {
-        reply_markup: buildProjectKeyboard(projects),
-      });
-    }
+    await reply(chatId, messageId, '🚫 Оберіть проєкт для деактивації:', {
+      reply_markup: buildProjectKeyboard(projects, 'action:back_to_main'),
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Called when the admin selects a project to deactivate.
- * Deactivates the project, sends confirmation, resets session.
- * Req 2.3
- */
-export async function handleDeactivateProjectConfirm(
-  ctx: HandlerContext,
-  projectId: string,
-): Promise<void> {
-  const { user, chatId } = ctx;
-
+export async function handleDeactivateProjectConfirm(ctx: HandlerContext, projectId: string): Promise<void> {
+  const { user, chatId, messageId } = ctx;
   try {
     const project = await projectService.findById(projectId);
     if (!project) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_PROJECTS);
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: ADMIN_MAIN_MENU });
       return;
     }
-
     await projectService.deactivateProject(projectId);
     await sessionService.resetSession(user.id);
-
-    await telegramClient.sendMessage(
-      chatId,
-      MESSAGES.PROJECT_DEACTIVATED(project.name),
-      {
-        parse_mode: 'Markdown',
-        reply_markup: ADMIN_MAIN_MENU,
-      },
-    );
+    await reply(chatId, messageId, MESSAGES.PROJECT_DEACTIVATED(esc(project.name)), {
+      parse_mode: 'Markdown',
+      reply_markup: ADMIN_MAIN_MENU,
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -220,117 +139,55 @@ export async function handleDeactivateProjectConfirm(
 // 9. Employees
 // ---------------------------------------------------------------------------
 
-/**
- * Shows all employees with their total weekly hours.
- * Req 9.1
- */
 export async function handleEmployees(ctx: HandlerContext): Promise<void> {
   const { chatId, messageId } = ctx;
-
   try {
     const employees = await userService.getAllEmployeesWithWeeklyTime();
-
     if (employees.length === 0) {
-      const text = '👥 Співробітників не знайдено.';
-      if (messageId) {
-        await telegramClient.editMessageText(chatId, messageId, text);
-      } else {
-        await telegramClient.sendMessage(chatId, text);
-      }
+      await reply(chatId, messageId, '👥 Співробітників не знайдено.', { reply_markup: ADMIN_MAIN_MENU });
       return;
     }
-
-    const lines: string[] = ['👥 *Співробітники (поточний тиждень):*\n'];
-
+    const lines = ['👥 *Співробітники (поточний тиждень):*\n'];
     for (const emp of employees) {
-      const displayName = userService.getDisplayName(emp);
-      const timeSpent: TimeSpent = {
-        hours: Math.floor(emp.weeklyMinutes / 60),
-        minutes: emp.weeklyMinutes % 60,
-        totalMinutes: emp.weeklyMinutes,
-      };
-      lines.push(`👤 *${escapeMarkdown(displayName)}:* ${formatTimeSpent(timeSpent)}`);
+      const name = userService.getDisplayName(emp);
+      const t: TimeSpent = { hours: Math.floor(emp.weeklyMinutes / 60), minutes: emp.weeklyMinutes % 60, totalMinutes: emp.weeklyMinutes };
+      lines.push(`👤 *${esc(name)}:* ${formatTimeSpent(t)}`);
     }
-
-    const text = lines.join('\n');
-    const options = {
-      parse_mode: 'Markdown' as const,
-      reply_markup: buildEmployeeListKeyboard(employees),
-    };
-
-    if (messageId) {
-      await telegramClient.editMessageText(chatId, messageId, text, options);
-    } else {
-      await telegramClient.sendMessage(chatId, text, options);
-    }
+    await reply(chatId, messageId, lines.join('\n'), {
+      parse_mode: 'Markdown',
+      reply_markup: buildEmployeeListKeyboard(employees, 'action:back_to_main'),
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Shows detailed task report for a specific employee for the current week.
- * Req 9.2
- */
-export async function handleEmployeeDetail(
-  ctx: HandlerContext,
-  userId: string,
-): Promise<void> {
+export async function handleEmployeeDetail(ctx: HandlerContext, userId: string): Promise<void> {
   const { chatId, messageId } = ctx;
-
   try {
-    const startOfWeek = getStartOfWeek();
-    const now = new Date();
-
-    const activities = await taskService.getTasksForUser(userId, startOfWeek, now);
-
-    // Fetch the employee's display name
-    const employees = await userService.getAllEmployeesWithWeeklyTime();
+    const [activities, employees] = await Promise.all([
+      taskService.getTasksForUser(userId, getStartOfWeek(), new Date()),
+      userService.getAllEmployeesWithWeeklyTime(),
+    ]);
     const employee = employees.find((e) => e.id === userId);
-    const displayName = employee ? userService.getDisplayName(employee) : userId;
-
-    const backKeyboard = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:employees' }]] };
+    const name = employee ? userService.getDisplayName(employee) : userId;
+    const back = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:employees' }]] };
 
     if (activities.length === 0) {
-      const text = `👤 *${escapeMarkdown(displayName)}*\n\n📭 За поточний тиждень задач не знайдено.`;
-      if (messageId) {
-        await telegramClient.editMessageText(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
-      } else {
-        await telegramClient.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
-      }
+      await reply(chatId, messageId, `👤 *${esc(name)}*\n\n📭 За поточний тиждень задач не знайдено.`, {
+        parse_mode: 'Markdown', reply_markup: back,
+      });
       return;
     }
 
-    const lines: string[] = [
-      `👤 *${escapeMarkdown(displayName)} — задачі за тиждень:*\n`,
-    ];
-
-    for (const activity of activities) {
-      const statusEmoji = getStatusEmoji(activity.status);
-      const statusLabel = getStatusLabel(activity.status);
-      lines.push(
-        `${statusEmoji} *${escapeMarkdown(activity.taskName)}*\n` +
-        `   📁 ${escapeMarkdown(activity.projectName)}\n` +
-        `   📊 ${statusLabel}\n` +
-        `   ⏱ ${formatTimeSpent(activity.timeSpent)}\n`,
-      );
+    const lines = [`👤 *${esc(name)} — задачі за тиждень:*\n`];
+    for (const a of activities) {
+      lines.push(`${statusEmoji(a.status)} *${esc(a.taskName)}*\n   📁 ${esc(a.projectName)}\n   📊 ${statusLabel(a.status)}\n   ⏱ ${formatTimeSpent(a.timeSpent)}\n`);
     }
+    const totalMin = activities.reduce((s, a) => s + a.timeSpent.totalMinutes, 0);
+    lines.push(`\n*Загалом за тиждень:* ${formatTimeSpent({ hours: Math.floor(totalMin / 60), minutes: totalMin % 60, totalMinutes: totalMin })}`);
 
-    const totalMinutes = activities.reduce((sum, a) => sum + a.timeSpent.totalMinutes, 0);
-    const totalTime: TimeSpent = {
-      hours: Math.floor(totalMinutes / 60),
-      minutes: totalMinutes % 60,
-      totalMinutes,
-    };
-
-    lines.push(`\n*Загалом за тиждень:* ${formatTimeSpent(totalTime)}`);
-
-    const text = lines.join('\n');
-    if (messageId) {
-      await telegramClient.editMessageText(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
-    } else {
-      await telegramClient.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
-    }
+    await reply(chatId, messageId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: back });
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -340,117 +197,63 @@ export async function handleEmployeeDetail(
 // 10. Tasks & Logs
 // ---------------------------------------------------------------------------
 
-/**
- * Entry point for the "tasks & logs" flow.
- * Sends the filter selection keyboard.
- * Req 10.1
- */
 export async function handleTasksLogs(ctx: HandlerContext): Promise<void> {
   const { chatId, messageId } = ctx;
-
-  const text = '📋 Оберіть фільтр для перегляду задач:';
-  const options = { reply_markup: buildFilterKeyboard() };
-
-  if (messageId) {
-    await telegramClient.editMessageText(chatId, messageId, text, options);
-  } else {
-    await telegramClient.sendMessage(chatId, text, options);
-  }
+  await reply(chatId, messageId, '📋 Оберіть фільтр для перегляду задач:', { reply_markup: buildFilterKeyboard() });
 }
 
-/**
- * Routes to the appropriate sub-flow based on the selected filter.
- * - 'all' → fetch all tasks paginated, send list
- * - 'by_project' → fetch active projects, send project selection keyboard
- * - 'by_employee' → fetch all employees, send employee selection keyboard
- * Req 10.1, 10.2, 10.3
- */
-export async function handleTasksFilter(
-  ctx: HandlerContext,
-  filter: string,
-): Promise<void> {
-  const { chatId } = ctx;
-
+export async function handleTasksFilter(ctx: HandlerContext, filter: string): Promise<void> {
+  const { chatId, messageId } = ctx;
   try {
     if (filter === 'all') {
       const { tasks, total } = await taskService.getTasksWithFilters({}, 0);
-
       if (tasks.length === 0) {
-        await telegramClient.sendMessage(chatId, '📭 Задач не знайдено.');
+        await reply(chatId, messageId, '📭 Задач не знайдено.', { reply_markup: buildFilterKeyboard() });
         return;
       }
-
       const totalPages = Math.ceil(total / PAGE_SIZE);
-      const paginationKeyboard = buildPaginationKeyboard(0, totalPages, 'tasks');
-
-      await telegramClient.sendMessage(
-        chatId,
-        `📋 *Всі задачі* (${total}):`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: tasks.length > 0
-            ? {
-                inline_keyboard: [
-                  ...buildTaskListKeyboard(tasks).inline_keyboard,
-                  ...paginationKeyboard.inline_keyboard,
-                ],
-              }
-            : buildTaskListKeyboard(tasks),
+      const pagination = buildPaginationKeyboard(0, totalPages, 'tasks');
+      await reply(chatId, messageId, `📋 *Всі задачі* (${total}):`, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            ...buildTaskListKeyboard(tasks, 'action:tasks_logs').inline_keyboard,
+            ...pagination.inline_keyboard,
+          ],
         },
-      );
+      });
     } else if (filter === 'by_project') {
       const projects = await projectService.getActiveProjects();
-
       if (projects.length === 0) {
-        await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_PROJECTS);
+        await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: buildFilterKeyboard() });
         return;
       }
-
-      await telegramClient.sendMessage(
-        chatId,
-        '📁 Оберіть проєкт:',
-        { reply_markup: buildProjectKeyboard(projects) },
-      );
+      await reply(chatId, messageId, '📁 Оберіть проєкт:', {
+        reply_markup: buildProjectKeyboard(projects, 'action:tasks_logs'),
+      });
     } else if (filter === 'by_employee') {
       const employees = await userService.getAllEmployeesWithWeeklyTime();
-
       if (employees.length === 0) {
-        await telegramClient.sendMessage(chatId, '👥 Співробітників не знайдено.');
+        await reply(chatId, messageId, '👥 Співробітників не знайдено.', { reply_markup: buildFilterKeyboard() });
         return;
       }
-
-      await telegramClient.sendMessage(
-        chatId,
-        '👤 Оберіть співробітника:',
-        { reply_markup: buildEmployeeListKeyboard(employees) },
-      );
-    } else {
-      logger.warn('handleTasksFilter: unknown filter', filter);
+      await reply(chatId, messageId, '👤 Оберіть співробітника:', {
+        reply_markup: buildEmployeeListKeyboard(employees, 'action:tasks_logs'),
+      });
     }
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Shows full detail for a specific task: time logs and attachments.
- * Req 10.4
- */
-export async function handleTaskDetail(
-  ctx: HandlerContext,
-  taskId: string,
-): Promise<void> {
+export async function handleTaskDetail(ctx: HandlerContext, taskId: string): Promise<void> {
   const { chatId, messageId } = ctx;
-
   try {
     const [timeLogs, attachments] = await Promise.all([
       taskService.getTimeLogs(taskId),
       storageService.getAttachments(taskId),
     ]);
-
-    const lines: string[] = ['📋 *Деталі задачі:*\n'];
-
-    // Time logs section
+    const lines = ['📋 *Деталі задачі:*\n'];
     if (timeLogs.length === 0) {
       lines.push('⏱ *Логи часу:* відсутні\n');
     } else {
@@ -459,241 +262,107 @@ export async function handleTaskDetail(
         const log = timeLogs[i];
         lines.push(`\n*Інтервал ${i + 1}:*`);
         lines.push(`  🟢 Старт: ${formatDateTime(log.started_at)}`);
-        if (log.paused_at) {
-          lines.push(`  ⏸ Пауза: ${formatDateTime(log.paused_at)}`);
-        }
-        if (log.ended_at) {
-          lines.push(`  🔴 Завершено: ${formatDateTime(log.ended_at)}`);
-        }
-        if (!log.paused_at && !log.ended_at) {
-          lines.push(`  ▶️ (активний)`);
-        }
+        if (log.paused_at) lines.push(`  ⏸ Пауза: ${formatDateTime(log.paused_at)}`);
+        if (log.ended_at) lines.push(`  🔴 Завершено: ${formatDateTime(log.ended_at)}`);
+        if (!log.paused_at && !log.ended_at) lines.push(`  ▶️ (активний)`);
       }
     }
-
-    // Attachments section
     if (attachments.length > 0) {
       lines.push('\n📎 *Результати:*');
-      for (const attachment of attachments) {
-        if (attachment.type === 'text') {
-          lines.push(`  📝 ${escapeMarkdown(attachment.content)}`);
-        } else {
-          lines.push(`  📄 [Файл](${attachment.content})`);
-        }
+      for (const a of attachments) {
+        lines.push(a.type === 'text' ? `  📝 ${esc(a.content)}` : `  📄 [Файл](${a.content})`);
       }
     }
-
-    const backKeyboard = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:tasks_logs' }]] };
-    const text = lines.join('\n');
-
-    if (messageId) {
-      await telegramClient.editMessageText(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
-    } else {
-      await telegramClient.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
-    }
+    const back = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:tasks_logs' }]] };
+    await reply(chatId, messageId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: back });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Handles pagination for task/employee lists.
- * Re-fetches paginated data and updates the message keyboard.
- * Supported prefixes: 'tasks', 'filter_project:{projectId}', 'filter_employee:{userId}'
- * Req 10.5
- */
-export async function handlePagination(
-  ctx: HandlerContext,
-  prefix: string,
-  page: number,
-): Promise<void> {
-  const { chatId } = ctx;
-
+export async function handlePagination(ctx: HandlerContext, prefix: string, page: number): Promise<void> {
+  const { chatId, messageId } = ctx;
   try {
     if (prefix === 'tasks') {
-      // All tasks paginated
       const { tasks, total } = await taskService.getTasksWithFilters({}, page);
       const totalPages = Math.ceil(total / PAGE_SIZE);
-      const paginationKeyboard = buildPaginationKeyboard(page, totalPages, 'tasks');
-
-      await telegramClient.sendMessage(
-        chatId,
-        `📋 *Всі задачі* (${total}), сторінка ${page + 1}/${totalPages}:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              ...buildTaskListKeyboard(tasks).inline_keyboard,
-              ...paginationKeyboard.inline_keyboard,
-            ],
-          },
-        },
-      );
+      const pagination = buildPaginationKeyboard(page, totalPages, 'tasks');
+      await reply(chatId, messageId, `📋 *Всі задачі* (${total}), стор. ${page + 1}/${totalPages}:`, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [...buildTaskListKeyboard(tasks, 'action:tasks_logs').inline_keyboard, ...pagination.inline_keyboard] },
+      });
     } else if (prefix.startsWith('filter_project:')) {
-      // Tasks filtered by project
       const projectId = prefix.slice('filter_project:'.length);
       const { tasks, total } = await taskService.getTasksWithFilters({ projectId }, page);
       const totalPages = Math.ceil(total / PAGE_SIZE);
-      const paginationKeyboard = buildPaginationKeyboard(page, totalPages, prefix);
-
-      await telegramClient.sendMessage(
-        chatId,
-        `📁 *Задачі за проєктом* (${total}), сторінка ${page + 1}/${totalPages}:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              ...buildTaskListKeyboard(tasks).inline_keyboard,
-              ...paginationKeyboard.inline_keyboard,
-            ],
-          },
-        },
-      );
+      const pagination = buildPaginationKeyboard(page, totalPages, prefix);
+      await reply(chatId, messageId, `📁 *Задачі за проєктом* (${total}), стор. ${page + 1}/${totalPages}:`, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [...buildTaskListKeyboard(tasks, 'action:tasks_logs').inline_keyboard, ...pagination.inline_keyboard] },
+      });
     } else if (prefix.startsWith('filter_employee:')) {
-      // Tasks filtered by employee
       const userId = prefix.slice('filter_employee:'.length);
       const { tasks, total } = await taskService.getTasksWithFilters({ userId }, page);
       const totalPages = Math.ceil(total / PAGE_SIZE);
-      const paginationKeyboard = buildPaginationKeyboard(page, totalPages, prefix);
-
-      await telegramClient.sendMessage(
-        chatId,
-        `👤 *Задачі за співробітником* (${total}), сторінка ${page + 1}/${totalPages}:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              ...buildTaskListKeyboard(tasks).inline_keyboard,
-              ...paginationKeyboard.inline_keyboard,
-            ],
-          },
-        },
-      );
-    } else if (prefix === 'employees') {
-      // Employee list pagination (if needed in future)
-      const employees = await userService.getAllEmployeesWithWeeklyTime();
-      const total = employees.length;
-      const totalPages = Math.ceil(total / PAGE_SIZE);
-      const pageEmployees = employees.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-      const paginationKeyboard = buildPaginationKeyboard(page, totalPages, 'employees');
-
-      const lines: string[] = [`👥 *Співробітники* (${total}), сторінка ${page + 1}/${totalPages}:\n`];
-      for (const emp of pageEmployees) {
-        const displayName = userService.getDisplayName(emp);
-        const timeSpent: TimeSpent = {
-          hours: Math.floor(emp.weeklyMinutes / 60),
-          minutes: emp.weeklyMinutes % 60,
-          totalMinutes: emp.weeklyMinutes,
-        };
-        lines.push(`👤 *${escapeMarkdown(displayName)}:* ${formatTimeSpent(timeSpent)}`);
-      }
-
-      await telegramClient.sendMessage(chatId, lines.join('\n'), {
+      const pagination = buildPaginationKeyboard(page, totalPages, prefix);
+      await reply(chatId, messageId, `👤 *Задачі за співробітником* (${total}), стор. ${page + 1}/${totalPages}:`, {
         parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            ...buildEmployeeListKeyboard(pageEmployees).inline_keyboard,
-            ...paginationKeyboard.inline_keyboard,
-          ],
-        },
+        reply_markup: { inline_keyboard: [...buildTaskListKeyboard(tasks, 'action:tasks_logs').inline_keyboard, ...pagination.inline_keyboard] },
       });
-    } else {
-      logger.warn('handlePagination: unknown prefix', prefix);
     }
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Shows tasks for a specific project (used in the by_project filter flow).
- * Req 10.2
- */
-export async function handleProjectTasksFilter(
-  ctx: HandlerContext,
-  projectId: string,
-): Promise<void> {
-  const { chatId } = ctx;
-
+export async function handleProjectTasksFilter(ctx: HandlerContext, projectId: string): Promise<void> {
+  const { chatId, messageId } = ctx;
   try {
-    const project = await projectService.findById(projectId);
-    const { tasks, total } = await taskService.getTasksWithFilters({ projectId }, 0);
-
+    const [project, { tasks, total }] = await Promise.all([
+      projectService.findById(projectId),
+      taskService.getTasksWithFilters({ projectId }, 0),
+    ]);
+    const name = project?.name ?? projectId;
     if (tasks.length === 0) {
-      const projectName = project?.name ?? projectId;
-      await telegramClient.sendMessage(
-        chatId,
-        `📁 *${escapeMarkdown(projectName)}*\n\n📭 Задач не знайдено.`,
-        { parse_mode: 'Markdown' },
-      );
+      await reply(chatId, messageId, `📁 *${esc(name)}*\n\n📭 Задач не знайдено.`, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:tasks_logs' }]] },
+      });
       return;
     }
-
     const totalPages = Math.ceil(total / PAGE_SIZE);
-    const paginationKeyboard = buildPaginationKeyboard(0, totalPages, `filter_project:${projectId}`);
-    const projectName = project?.name ?? projectId;
-
-    await telegramClient.sendMessage(
-      chatId,
-      `📁 *${escapeMarkdown(projectName)}* — задачі (${total}):`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            ...buildTaskListKeyboard(tasks).inline_keyboard,
-            ...paginationKeyboard.inline_keyboard,
-          ],
-        },
-      },
-    );
+    const pagination = buildPaginationKeyboard(0, totalPages, `filter_project:${projectId}`);
+    await reply(chatId, messageId, `📁 *${esc(name)}* — задачі (${total}):`, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: [...buildTaskListKeyboard(tasks, 'action:tasks_logs').inline_keyboard, ...pagination.inline_keyboard] },
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Shows tasks for a specific employee (used in the by_employee filter flow).
- * Req 10.3
- */
-export async function handleEmployeeTasksFilter(
-  ctx: HandlerContext,
-  userId: string,
-): Promise<void> {
-  const { chatId } = ctx;
-
+export async function handleEmployeeTasksFilter(ctx: HandlerContext, userId: string): Promise<void> {
+  const { chatId, messageId } = ctx;
   try {
-    const { tasks, total } = await taskService.getTasksWithFilters({ userId }, 0);
-
-    // Get employee display name
-    const employees = await userService.getAllEmployeesWithWeeklyTime();
+    const [{ tasks, total }, employees] = await Promise.all([
+      taskService.getTasksWithFilters({ userId }, 0),
+      userService.getAllEmployeesWithWeeklyTime(),
+    ]);
     const employee = employees.find((e) => e.id === userId);
-    const displayName = employee ? userService.getDisplayName(employee) : userId;
-
+    const name = employee ? userService.getDisplayName(employee) : userId;
     if (tasks.length === 0) {
-      await telegramClient.sendMessage(
-        chatId,
-        `👤 *${escapeMarkdown(displayName)}*\n\n📭 Задач не знайдено.`,
-        { parse_mode: 'Markdown' },
-      );
+      await reply(chatId, messageId, `👤 *${esc(name)}*\n\n📭 Задач не знайдено.`, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:tasks_logs' }]] },
+      });
       return;
     }
-
     const totalPages = Math.ceil(total / PAGE_SIZE);
-    const paginationKeyboard = buildPaginationKeyboard(0, totalPages, `filter_employee:${userId}`);
-
-    await telegramClient.sendMessage(
-      chatId,
-      `👤 *${escapeMarkdown(displayName)}* — задачі (${total}):`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            ...buildTaskListKeyboard(tasks).inline_keyboard,
-            ...paginationKeyboard.inline_keyboard,
-          ],
-        },
-      },
-    );
+    const pagination = buildPaginationKeyboard(0, totalPages, `filter_employee:${userId}`);
+    await reply(chatId, messageId, `👤 *${esc(name)}* — задачі (${total}):`, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: [...buildTaskListKeyboard(tasks, 'action:tasks_logs').inline_keyboard, ...pagination.inline_keyboard] },
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -703,63 +372,33 @@ export async function handleEmployeeTasksFilter(
 // Admin / user management
 // ---------------------------------------------------------------------------
 
-/**
- * Shows the user management menu.
- */
 export async function handleManageAdmins(ctx: HandlerContext): Promise<void> {
   const { chatId, messageId } = ctx;
-
-  try {
-    if (messageId) {
-      await telegramClient.editMessageText(chatId, messageId, MESSAGES.MANAGE_USERS_PROMPT, {
-        reply_markup: MANAGE_USERS_KEYBOARD,
-      });
-    } else {
-      await telegramClient.sendMessage(chatId, MESSAGES.MANAGE_USERS_PROMPT, {
-        reply_markup: MANAGE_USERS_KEYBOARD,
-      });
-    }
-  } catch (err) {
-    await sendDbError(chatId, err);
-  }
+  await reply(chatId, messageId, MESSAGES.MANAGE_USERS_PROMPT, { reply_markup: MANAGE_USERS_KEYBOARD });
 }
 
-/**
- * Starts the "add admin" flow — prompts for a Telegram ID.
- */
 export async function handleAddAdmin(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
-
+  const { user, chatId, messageId } = ctx;
   try {
     await sessionService.setState(user.id, 'awaiting_new_admin_id');
-    await telegramClient.sendMessage(chatId, MESSAGES.ADD_ADMIN_PROMPT);
+    await reply(chatId, messageId, MESSAGES.ADD_ADMIN_PROMPT, { parse_mode: 'Markdown' });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Starts the "add employee" flow — prompts for a Telegram ID.
- */
 export async function handleAddEmployee(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
-
+  const { user, chatId, messageId } = ctx;
   try {
     await sessionService.setState(user.id, 'awaiting_new_employee_id');
-    await telegramClient.sendMessage(chatId, MESSAGES.ADD_EMPLOYEE_PROMPT);
+    await reply(chatId, messageId, MESSAGES.ADD_EMPLOYEE_PROMPT, { parse_mode: 'Markdown' });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Resolves a Telegram user from a forwarded message, @username, or numeric ID.
- * Returns { telegramId, firstName, username } or null if unresolvable.
- */
-async function resolveUserFromMessage(
-  message: import('@/types/index').TelegramMessage,
-): Promise<{ telegramId: number; firstName?: string; username?: string } | null> {
-  // 1. Forwarded message — best case, we get the real ID
+async function resolveUserFromMessage(message: TelegramMessage): Promise<{ telegramId: number; firstName?: string; username?: string } | null> {
+  // 1. Forwarded message — has the real sender's ID
   if (message.forward_from) {
     return {
       telegramId: message.forward_from.id,
@@ -768,14 +407,11 @@ async function resolveUserFromMessage(
     };
   }
 
-  const text = message.text?.trim() ?? '';
+  const text = (message.text ?? '').trim();
 
-  // 2. @username
+  // 2. @username — can't resolve to ID without the user having messaged the bot
   if (text.startsWith('@')) {
-    const username = text.slice(1);
-    // We can't look up a Telegram ID by username via Bot API without the user
-    // having messaged the bot first. Return username for storage only.
-    return { telegramId: 0, username };
+    return { telegramId: 0, username: text.slice(1) };
   }
 
   // 3. Numeric ID
@@ -787,33 +423,15 @@ async function resolveUserFromMessage(
   return null;
 }
 
-/**
- * Processes the message input for adding a new admin.
- * Accepts: forwarded message, @username, or numeric ID.
- */
-export async function handleNewAdminIdInput(
-  ctx: HandlerContext,
-  message: import('@/types/index').TelegramMessage,
-): Promise<void> {
-  const { user, chatId } = ctx;
+export async function handleNewAdminIdInput(ctx: HandlerContext, message: TelegramMessage): Promise<void> {
   await handleAddUserInput(ctx, message, 'admin');
 }
 
-/**
- * Processes the message input for adding a new employee.
- */
-export async function handleNewEmployeeIdInput(
-  ctx: HandlerContext,
-  message: import('@/types/index').TelegramMessage,
-): Promise<void> {
+export async function handleNewEmployeeIdInput(ctx: HandlerContext, message: TelegramMessage): Promise<void> {
   await handleAddUserInput(ctx, message, 'employee');
 }
 
-async function handleAddUserInput(
-  ctx: HandlerContext,
-  message: import('@/types/index').TelegramMessage,
-  role: 'admin' | 'employee',
-): Promise<void> {
+async function handleAddUserInput(ctx: HandlerContext, message: TelegramMessage, role: 'admin' | 'employee'): Promise<void> {
   const { user, chatId } = ctx;
   const backKeyboard = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:manage_admins' }]] };
 
@@ -824,112 +442,75 @@ async function handleAddUserInput(
     return;
   }
 
-  // Username-only path: we can't register without a real ID
   if (resolved.telegramId === 0) {
     await telegramClient.sendMessage(
       chatId,
       `⚠️ Не вдалося отримати Telegram ID для @${resolved.username}.\n\n` +
-      `Попросіть цю людину написати боту будь-яке повідомлення, а потім перешліть його вам — тоді перешліть його сюди.`,
+      `Попросіть цю людину написати боту будь-яке повідомлення, а потім перешліть його вам — і перешліть сюди.`,
       { reply_markup: backKeyboard },
     );
     return;
   }
 
   try {
-    // Check if already exists
     const existing = await userService.findByTelegramId(resolved.telegramId);
     if (existing) {
       await telegramClient.sendMessage(
         chatId,
-        `⚠️ Користувач вже зареєстрований як *${existing.role === 'admin' ? 'адмін' : 'співробітник'}*.\n` +
-        `Ім'я: ${escapeMarkdown(userService.getDisplayName(existing))}`,
+        `⚠️ Вже зареєстрований як *${existing.role === 'admin' ? 'адмін' : 'співробітник'}*: ${esc(userService.getDisplayName(existing))}`,
         { parse_mode: 'Markdown', reply_markup: backKeyboard },
       );
       return;
     }
 
-    await userService.createUser(
-      resolved.telegramId,
-      role,
-      resolved.firstName,
-      resolved.username,
-    );
-
+    await userService.createUser(resolved.telegramId, role, resolved.firstName, resolved.username);
     await sessionService.resetSession(user.id);
 
     const displayName = resolved.firstName ?? (resolved.username ? `@${resolved.username}` : String(resolved.telegramId));
-    const msg = role === 'admin'
-      ? MESSAGES.USER_ADDED_ADMIN(resolved.telegramId)
-      : MESSAGES.USER_ADDED_EMPLOYEE(resolved.telegramId);
-
-    await telegramClient.sendMessage(
-      chatId,
-      `${msg}\n👤 ${escapeMarkdown(displayName)}`,
-      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
-    );
+    const msg = role === 'admin' ? MESSAGES.USER_ADDED_ADMIN(resolved.telegramId) : MESSAGES.USER_ADDED_EMPLOYEE(resolved.telegramId);
+    await telegramClient.sendMessage(chatId, `${msg}\n👤 ${esc(displayName)}`, {
+      parse_mode: 'Markdown',
+      reply_markup: ADMIN_MAIN_MENU,
+    });
   } catch (err) {
     await sessionService.resetSession(user.id);
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Shows the list of admins that can be removed (excludes the current admin).
- */
 export async function handleRemoveAdmin(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
-
+  const { user, chatId, messageId } = ctx;
   try {
     const admins = await userService.getAllAdmins();
-    // Exclude self
     const others = admins.filter((a) => a.id !== user.id);
-
     if (others.length === 0) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ADMINS_TO_REMOVE);
+      await reply(chatId, messageId, MESSAGES.NO_ADMINS_TO_REMOVE, { reply_markup: MANAGE_USERS_KEYBOARD });
       return;
     }
-
-    await telegramClient.sendMessage(
-      chatId,
-      '🗑 Оберіть адміна для видалення:',
-      { reply_markup: buildAdminListKeyboard(others) },
-    );
+    await reply(chatId, messageId, '🗑 Оберіть адміна для видалення:', { reply_markup: buildAdminListKeyboard(others) });
   } catch (err) {
     await sendDbError(chatId, err);
   }
 }
 
-/**
- * Confirms and executes admin removal.
- */
-export async function handleRemoveAdminConfirm(
-  ctx: HandlerContext,
-  targetUserId: string,
-): Promise<void> {
-  const { user, chatId } = ctx;
-
+export async function handleRemoveAdminConfirm(ctx: HandlerContext, targetUserId: string): Promise<void> {
+  const { user, chatId, messageId } = ctx;
   if (targetUserId === user.id) {
-    await telegramClient.sendMessage(chatId, MESSAGES.CANNOT_REMOVE_SELF);
+    await reply(chatId, messageId, MESSAGES.CANNOT_REMOVE_SELF, { reply_markup: MANAGE_USERS_KEYBOARD });
     return;
   }
-
   try {
     const admins = await userService.getAllAdmins();
     const target = admins.find((a) => a.id === targetUserId);
-
     if (!target) {
-      await telegramClient.sendMessage(chatId, '⚠️ Адміна не знайдено.');
+      await reply(chatId, messageId, '⚠️ Адміна не знайдено.', { reply_markup: MANAGE_USERS_KEYBOARD });
       return;
     }
-
     await userService.deleteUser(targetUserId);
-
-    const name = userService.getDisplayName(target);
-    await telegramClient.sendMessage(
-      chatId,
-      MESSAGES.ADMIN_REMOVED(escapeMarkdown(name)),
-      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
-    );
+    await reply(chatId, messageId, MESSAGES.ADMIN_REMOVED(esc(userService.getDisplayName(target))), {
+      parse_mode: 'Markdown',
+      reply_markup: ADMIN_MAIN_MENU,
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
