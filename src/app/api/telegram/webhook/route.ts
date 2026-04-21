@@ -47,10 +47,15 @@ export async function POST(request: Request): Promise<Response> {
     return new Response('OK', { status: 200 }); // Avoid Telegram retries
   }
 
-  // Step 3: Respond immediately; process asynchronously (Req 13.3)
-  processUpdate(update).catch((err: unknown) => {
+  // Step 3: Process the update, then respond.
+  // Note: On Vercel serverless, fire-and-forget after Response is not reliable
+  // because the function terminates immediately after returning. We await here
+  // and rely on the function's maxDuration (10s) to stay within Telegram's window.
+  try {
+    await processUpdate(update);
+  } catch (err: unknown) {
     logger.error('Unhandled error in processUpdate', err);
-  });
+  }
 
   return new Response('OK', { status: 200 });
 }
