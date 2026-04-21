@@ -7,6 +7,7 @@ import * as telegramClient from '@/lib/telegram/client';
 import { projectService } from '@/lib/services/project.service';
 import { taskService } from '@/lib/services/task.service';
 import { userService } from '@/lib/services/user.service';
+import { membershipService } from '@/lib/services/membership.service';
 import { sessionService } from '@/lib/services/session.service';
 import { storageService } from '@/lib/services/storage.service';
 import { MESSAGES } from '@/lib/messages';
@@ -19,6 +20,7 @@ import {
   buildPaginationKeyboard,
   buildFilterKeyboard,
   buildAdminListKeyboard,
+  buildInviteRoleKeyboard,
   ADMIN_MAIN_MENU,
   MANAGE_USERS_KEYBOARD,
 } from '@/lib/telegram/keyboards';
@@ -397,8 +399,17 @@ export async function handleAddEmployee(ctx: HandlerContext): Promise<void> {
   }
 }
 
-async function resolveUserFromMessage(message: TelegramMessage): Promise<{ telegramId: number; firstName?: string; username?: string } | null> {
-  // 1. Forwarded message — has the real sender's ID
+async function resolveUserFromMessage(message: TelegramMessage): Promise<{ telegramId: number; firstName?: string; username?: string; privacyBlocked?: boolean } | null> {
+  // 1. New Bot API: forward_origin with sender_user (privacy allowed)
+  if (message.forward_origin?.type === 'user' && message.forward_origin.sender_user) {
+    return {
+      telegramId: message.forward_origin.sender_user.id,
+      firstName: message.forward_origin.sender_user.first_name,
+      username: message.forward_origin.sender_user.username,
+    };
+  }
+
+  // 2. Old Bot API: forward_from (privacy allowed)
   if (message.forward_from) {
     return {
       telegramId: message.forward_from.id,
@@ -407,14 +418,25 @@ async function resolveUserFromMessage(message: TelegramMessage): Promise<{ teleg
     };
   }
 
+  // 3. Forward with privacy enabled — sender hid their identity
+  // forward_origin.type = 'hidden_user' or forward_sender_name is set
+  if (
+    message.forward_origin?.type === 'hidden_user' ||
+    message.forward_sender_name ||
+    (message.forward_origin && !message.forward_origin.sender_user)
+  ) {
+    const name = message.forward_origin?.sender_user_name ?? message.forward_sender_name ?? 'невідомий';
+    return { telegramId: 0, firstName: name, privacyBlocked: true };
+  }
+
   const text = (message.text ?? '').trim();
 
-  // 2. @username — can't resolve to ID without the user having messaged the bot
+  // 4. @username text input
   if (text.startsWith('@')) {
     return { telegramId: 0, username: text.slice(1) };
   }
 
-  // 3. Numeric ID
+  // 5. Numeric ID text input
   const id = parseInt(text, 10);
   if (!isNaN(id) && id > 0) {
     return { telegramId: id };
@@ -443,12 +465,22 @@ async function handleAddUserInput(ctx: HandlerContext, message: TelegramMessage,
   }
 
   if (resolved.telegramId === 0) {
-    await telegramClient.sendMessage(
-      chatId,
-      `⚠️ Не вдалося отримати Telegram ID для @${resolved.username}.\n\n` +
-      `Попросіть цю людину написати боту будь-яке повідомлення, а потім перешліть його вам — і перешліть сюди.`,
-      { reply_markup: backKeyboard },
-    );
+    if (resolved.privacyBlocked) {
+      const name = resolved.firstName ?? 'цей користувач';
+      await telegramClient.sendMessage(
+        chatId,
+        `🔒 *${esc(name)}* приховав свій профіль у налаштуваннях конфіденційності Telegram.\n\n` +
+        `Попросіть їх:\n1. Написати боту команду /start\n2. Або вимкнути "Пересилання повідомлень → Ніхто" у налаштуваннях Telegram\n\nАбо введіть їх числовий ID вручну.`,
+        { parse_mode: 'Markdown', reply_markup: backKeyboard },
+      );
+    } else {
+      await telegramClient.sendMessage(
+        chatId,
+        `⚠️ Не вдалося отримати Telegram ID для @${resolved.username}.\n\n` +
+        `Попросіть цю людину написати боту /start, а потім перешліть їхнє повідомлення сюди.`,
+        { reply_markup: backKeyboard },
+      );
+    }
     return;
   }
 
@@ -511,6 +543,72 @@ export async function handleRemoveAdminConfirm(ctx: HandlerContext, targetUserId
       parse_mode: 'Markdown',
       reply_markup: ADMIN_MAIN_MENU,
     });
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Invite links
+// ---------------------------------------------------------------------------
+
+/** Shows project selection for generating an invite link. */
+export async function handleInviteToProject(ctx: HandlerContext): Promise<void> {
+  const { chatId, messageId } = ctx;
+  try {
+    const projects = await projectService.getActiveProjects();
+    if (projects.length === 0) {
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: ADMIN_MAIN_MENU });
+      return;
+    }
+    await reply(chatId, messageId, '🔗 Оберіть проєкт для генерації запрошення:', {
+      reply_markup: buildProjectKeyboard(projects, 'action:back_to_main', 'invite_project'),
+    });
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+/** Shows role selection after project is chosen for invite. */
+export async function handleInviteProjectSelected(ctx: HandlerContext, projectId: string): Promise<void> {
+  const { chatId, messageId } = ctx;
+  try {
+    const project = await projectService.findById(projectId);
+    if (!project) {
+      await reply(chatId, messageId, '⚠️ Проєкт не знайдено.', { reply_markup: ADMIN_MAIN_MENU });
+      return;
+    }
+    await reply(chatId, messageId, `🔗 *${esc(project.name)}*\n\nОберіть роль для запрошення:`, {
+      parse_mode: 'Markdown',
+      reply_markup: buildInviteRoleKeyboard(projectId),
+    });
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+/** Generates and sends the invite link. */
+export async function handleGenerateInviteLink(ctx: HandlerContext, projectId: string, role: 'admin' | 'employee'): Promise<void> {
+  const { user, chatId, messageId } = ctx;
+  try {
+    const project = await projectService.findById(projectId);
+    if (!project) {
+      await reply(chatId, messageId, '⚠️ Проєкт не знайдено.', { reply_markup: ADMIN_MAIN_MENU });
+      return;
+    }
+
+    const link = await membershipService.createInviteLink(projectId, role, user.id);
+    const roleLabel = role === 'admin' ? 'адміна' : 'співробітника';
+
+    await reply(chatId, messageId,
+      `🔗 *Посилання-запрошення*\n\n` +
+      `📁 Проєкт: *${esc(project.name)}*\n` +
+      `👤 Роль: *${roleLabel}*\n` +
+      `⏳ Дійсне: 7 днів\n\n` +
+      `${link}\n\n` +
+      `_Надішліть це посилання потрібній людині. Після переходу вони автоматично отримають доступ._`,
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
+    );
   } catch (err) {
     await sendDbError(chatId, err);
   }

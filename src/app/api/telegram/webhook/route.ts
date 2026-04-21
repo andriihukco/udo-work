@@ -15,10 +15,11 @@ import * as telegramClient from '@/lib/telegram/client';
 import * as router from '@/lib/handlers/router';
 import { sessionService } from '@/lib/services/session.service';
 import { userService } from '@/lib/services/user.service';
+import { membershipService } from '@/lib/services/membership.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
 import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU } from '@/lib/telegram/keyboards';
-import type { TelegramUpdate, HandlerContext } from '@/types/index';
+import type { TelegramUpdate, HandlerContext, User } from '@/types/index';
 
 // ---------------------------------------------------------------------------
 // POST handler
@@ -108,8 +109,16 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
     return;
   }
 
-  // Step 5: Handle /start — show role-appropriate main menu
-  if (update.message?.text === '/start') {
+  // Step 5: Handle /start — show role-appropriate main menu, or redeem invite
+  if (update.message?.text?.startsWith('/start')) {
+    const param = update.message.text.slice('/start'.length).trim();
+
+    if (param.startsWith('invite_')) {
+      const token = param.slice('invite_'.length);
+      await handleInviteRedeem(chatId, user, token);
+      return;
+    }
+
     await showMainMenu(chatId, user.role);
     return;
   }
@@ -138,5 +147,45 @@ async function showMainMenu(
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
       reply_markup: EMPLOYEE_MAIN_MENU,
     });
+  }
+}
+
+/**
+ * Handles invite token redemption from a /start?invite_xxx deep link.
+ */
+async function handleInviteRedeem(chatId: number, user: User, token: string): Promise<void> {
+  try {
+    const result = await membershipService.redeemToken(token, user.id);
+
+    if (!result) {
+      await telegramClient.sendMessage(
+        chatId,
+        '⚠️ Посилання-запрошення недійсне або вже використане.\nЗверніться до адміністратора за новим посиланням.',
+      );
+      await showMainMenu(chatId, user.role);
+      return;
+    }
+
+    const { project, role } = result;
+
+    // If role changed, update the user's role
+    if (user.role !== role) {
+      await userService.updateRole(user.id, role);
+    }
+
+    // Add to project members
+    await membershipService.addMember(project.id, user.id);
+
+    const roleLabel = role === 'admin' ? 'адміна' : 'співробітника';
+    await telegramClient.sendMessage(
+      chatId,
+      `✅ Вас додано до проєкту *${project.name}* як *${roleLabel}*!`,
+      { parse_mode: 'Markdown' },
+    );
+    await showMainMenu(chatId, role);
+  } catch (err) {
+    logger.error('handleInviteRedeem failed', err);
+    await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);
+    await showMainMenu(chatId, user.role);
   }
 }

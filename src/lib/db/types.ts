@@ -27,6 +27,23 @@ export interface ProjectRow {
   created_at: string;
 }
 
+export interface ProjectMemberRow {
+  project_id: string;
+  user_id: string;
+  added_at: string;
+}
+
+export interface InviteTokenRow {
+  token: string;
+  project_id: string;
+  role: 'admin' | 'employee';
+  created_by: string;
+  used_by: string | null;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+}
+
 export interface TaskRow {
   id: string;
   project_id: string;

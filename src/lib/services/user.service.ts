@@ -49,6 +49,9 @@ export interface UserService {
   /** Deletes a user by their internal UUID. */
   deleteUser(userId: string): Promise<void>;
 
+  /** Updates a user's role. */
+  updateRole(userId: string, role: UserRole): Promise<void>;
+
   /**
    * Returns the best available display name for a user:
    *   1. first_name (if set)
@@ -274,6 +277,18 @@ export const userService: UserService = {
     if (error) {
       logger.error('UserService.deleteUser failed', error);
       throw new DatabaseError('Failed to delete user');
+    }
+  },
+
+  async updateRole(userId: string, role: UserRole): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .update({ role })
+      .eq('id', userId);
+
+    if (error) {
+      logger.error('UserService.updateRole failed', error);
+      throw new DatabaseError('Failed to update user role');
     }
   },
 

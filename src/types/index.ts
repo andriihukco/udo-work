@@ -17,7 +17,9 @@ export type SessionState =
   | 'awaiting_deliverable'
   | 'awaiting_deliverable_choice'
   | 'awaiting_new_admin_id'
-  | 'awaiting_new_employee_id';
+  | 'awaiting_new_employee_id'
+  | 'awaiting_invite_project_select'
+  | 'awaiting_invite_role_select';
 
 // ---------------------------------------------------------------------------
 // Domain / Database Interfaces
@@ -74,6 +76,17 @@ export interface Session {
   updated_at: string;
 }
 
+export interface InviteToken {
+  token: string;
+  project_id: string;
+  role: UserRole;
+  created_by: string;
+  used_by: string | null;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Telegram API Types
 // ---------------------------------------------------------------------------
@@ -91,8 +104,16 @@ export interface TelegramMessage {
   text?: string;
   document?: TelegramDocument;
   photo?: TelegramPhotoSize[];
+  sticker?: { file_id: string };
   forward_from?: TelegramUser;
   forward_sender_name?: string;
+  /** New Bot API forward origin object */
+  forward_origin?: {
+    type: string;
+    sender_user?: TelegramUser;
+    sender_user_name?: string;
+    date: number;
+  };
 }
 
 export interface TelegramCallbackQuery {

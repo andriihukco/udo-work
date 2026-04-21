@@ -5,6 +5,7 @@
 
 import * as telegramClient from '@/lib/telegram/client';
 import { projectService } from '@/lib/services/project.service';
+import { membershipService } from '@/lib/services/membership.service';
 import { taskService } from '@/lib/services/task.service';
 import { sessionService } from '@/lib/services/session.service';
 import { notificationService } from '@/lib/services/notification.service';
@@ -83,7 +84,8 @@ export async function handleStartTask(ctx: HandlerContext): Promise<void> {
       await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: EMPLOYEE_MAIN_MENU });
       return;
     }
-    const projects = await projectService.getActiveProjects();
+    // Show only projects the employee is a member of
+    const projects = await membershipService.getProjectsForUser(user.id);
     if (projects.length === 0) {
       await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: EMPLOYEE_MAIN_MENU });
       return;

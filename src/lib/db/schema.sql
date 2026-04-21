@@ -24,6 +24,31 @@ CREATE TABLE projects (
 
 CREATE INDEX idx_projects_is_active ON projects(is_active);
 
+-- Project members table (many-to-many: employees assigned to projects)
+CREATE TABLE project_members (
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (project_id, user_id)
+);
+
+CREATE INDEX idx_project_members_user_id ON project_members(user_id);
+CREATE INDEX idx_project_members_project_id ON project_members(project_id);
+
+-- Invite tokens table (for invite link feature)
+CREATE TABLE invite_tokens (
+  token TEXT PRIMARY KEY,
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'employee')),
+  created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  used_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_invite_tokens_project_id ON invite_tokens(project_id);
+
 -- Tasks table
 CREATE TABLE tasks (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

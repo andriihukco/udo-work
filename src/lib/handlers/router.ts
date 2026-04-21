@@ -45,6 +45,7 @@ const ADMIN_ONLY_ACTIONS = new Set([
   'add_employee',
   'remove_admin',
   'back_to_main',
+  'invite_to_project',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -271,6 +272,9 @@ async function handleCallbackData(
         case 'remove_admin':
           await adminHandlers.handleRemoveAdmin(ctx);
           break;
+        case 'invite_to_project':
+          await adminHandlers.handleInviteToProject(ctx);
+          break;
         default:
           logger.warn('router: unhandled admin action', action);
       }
@@ -388,6 +392,36 @@ async function handleCallbackData(
     }
     const targetUserId = data.slice('remove_admin:'.length);
     await adminHandlers.handleRemoveAdminConfirm(ctx, targetUserId);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // invite_project:{projectId} — admin only (project selected for invite)
+  // -------------------------------------------------------------------------
+  if (data.startsWith('invite_project:')) {
+    if (user.role !== 'admin') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const projectId = data.slice('invite_project:'.length);
+    await adminHandlers.handleInviteProjectSelected(ctx, projectId);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // invite_role:{projectId}:{role} — admin only (role selected for invite)
+  // -------------------------------------------------------------------------
+  if (data.startsWith('invite_role:')) {
+    if (user.role !== 'admin') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const parts = data.slice('invite_role:'.length).split(':');
+    if (parts.length >= 2) {
+      const projectId = parts[0];
+      const role = parts[1] as 'admin' | 'employee';
+      await adminHandlers.handleGenerateInviteLink(ctx, projectId, role);
+    }
     return;
   }
 

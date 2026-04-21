@@ -30,6 +30,7 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
     [{ text: '👥 Співробітники', callback_data: 'action:employees' }],
     [{ text: '📋 Задачі та логи', callback_data: 'action:tasks_logs' }],
     [{ text: '🔑 Управління користувачами', callback_data: 'action:manage_admins' }],
+    [{ text: '🔗 Запросити до проєкту', callback_data: 'action:invite_to_project' }],
   ],
 };
 
@@ -74,14 +75,15 @@ export const ADD_MORE_KEYBOARD: InlineKeyboardMarkup = {
 
 /**
  * Builds a keyboard listing active projects for task-start selection.
- * Each button carries `project:{id}` as callback_data.
+ * Each button carries `project:{id}` as callback_data by default,
+ * or `{callbackPrefix}:{id}` if callbackPrefix is provided.
  * Requirements: 3.1
  */
-export function buildProjectKeyboard(projects: Project[], backAction = 'action:back_to_main'): InlineKeyboardMarkup {
+export function buildProjectKeyboard(projects: Project[], backAction = 'action:back_to_main', callbackPrefix = 'project'): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       ...projects.map((p) => [
-        { text: p.name, callback_data: `project:${p.id}` },
+        { text: p.name, callback_data: `${callbackPrefix}:${p.id}` },
       ]),
       [{ text: '◀️ Назад', callback_data: backAction }],
     ],
@@ -171,6 +173,19 @@ export function buildAdminListKeyboard(admins: User[]): InlineKeyboardMarkup {
         return [{ text: `🗑 ${label}`, callback_data: `remove_admin:${a.id}` }];
       }),
       [{ text: '◀️ Назад', callback_data: 'action:manage_admins' }],
+    ],
+  };
+}
+
+/**
+ * Builds a keyboard for selecting invite role.
+ */
+export function buildInviteRoleKeyboard(projectId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: '👤 Співробітник', callback_data: `invite_role:${projectId}:employee` }],
+      [{ text: '🔑 Адмін', callback_data: `invite_role:${projectId}:admin` }],
+      [{ text: '◀️ Назад', callback_data: 'action:invite_to_project' }],
     ],
   };
 }
