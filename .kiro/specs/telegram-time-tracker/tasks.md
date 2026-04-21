@@ -308,7 +308,7 @@ Implement a Telegram bot for employee time tracking built on Next.js 14+ (App Ro
 - [x] 19. Checkpoint — all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 20. Environment variable validation and deployment configuration
+- [x] 20. Environment variable validation and deployment configuration
   - Add `src/lib/utils/env.ts` that reads and validates all required environment variables at startup; throws a descriptive error if any are missing
   - Create `vercel.json` with region configuration (e.g., `fra1`) and function timeout settings
   - Add `README.md` with deployment checklist: create Supabase project, apply `schema.sql`, create `task-attachments` storage bucket, deploy to Vercel with env vars, register Telegram webhook via `setWebhook` API call, verify with `getWebhookInfo`
