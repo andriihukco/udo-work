@@ -39,6 +39,7 @@ export const MANAGE_USERS_KEYBOARD: InlineKeyboardMarkup = {
     [{ text: '➕ Додати адміна', callback_data: 'action:add_admin' }],
     [{ text: '➕ Додати співробітника', callback_data: 'action:add_employee' }],
     [{ text: '🗑 Видалити адміна', callback_data: 'action:remove_admin' }],
+    [{ text: '◀️ Назад', callback_data: 'action:back_to_main' }],
   ],
 };
 
@@ -47,6 +48,7 @@ export const ACTIVITY_PERIOD_KEYBOARD: InlineKeyboardMarkup = {
   inline_keyboard: [
     [{ text: '📅 Сьогодні', callback_data: 'period:today' }],
     [{ text: '📆 Цей тиждень', callback_data: 'period:week' }],
+    [{ text: '◀️ Назад', callback_data: 'action:back_to_main' }],
   ],
 };
 
@@ -75,11 +77,14 @@ export const ADD_MORE_KEYBOARD: InlineKeyboardMarkup = {
  * Each button carries `project:{id}` as callback_data.
  * Requirements: 3.1
  */
-export function buildProjectKeyboard(projects: Project[]): InlineKeyboardMarkup {
+export function buildProjectKeyboard(projects: Project[], backAction = 'action:back_to_main'): InlineKeyboardMarkup {
   return {
-    inline_keyboard: projects.map((p) => [
-      { text: p.name, callback_data: `project:${p.id}` },
-    ]),
+    inline_keyboard: [
+      ...projects.map((p) => [
+        { text: p.name, callback_data: `project:${p.id}` },
+      ]),
+      [{ text: '◀️ Назад', callback_data: backAction }],
+    ],
   };
 }
 
@@ -88,12 +93,15 @@ export function buildProjectKeyboard(projects: Project[]): InlineKeyboardMarkup 
  * Each button carries `employee:{id}` as callback_data.
  * Requirements: 9.1
  */
-export function buildEmployeeListKeyboard(employees: User[]): InlineKeyboardMarkup {
+export function buildEmployeeListKeyboard(employees: User[], backAction = 'action:employees'): InlineKeyboardMarkup {
   return {
-    inline_keyboard: employees.map((e) => {
-      const label = e.first_name ?? (e.username ? `@${e.username}` : String(e.telegram_id));
-      return [{ text: label, callback_data: `employee:${e.id}` }];
-    }),
+    inline_keyboard: [
+      ...employees.map((e) => {
+        const label = e.first_name ?? (e.username ? `@${e.username}` : String(e.telegram_id));
+        return [{ text: label, callback_data: `employee:${e.id}` }];
+      }),
+      [{ text: '◀️ Назад', callback_data: backAction }],
+    ],
   };
 }
 
@@ -102,11 +110,14 @@ export function buildEmployeeListKeyboard(employees: User[]): InlineKeyboardMark
  * Each button carries `task:{id}` as callback_data.
  * Requirements: 10.1
  */
-export function buildTaskListKeyboard(tasks: Task[]): InlineKeyboardMarkup {
+export function buildTaskListKeyboard(tasks: Task[], backAction = 'action:tasks_logs'): InlineKeyboardMarkup {
   return {
-    inline_keyboard: tasks.map((t) => [
-      { text: t.name, callback_data: `task:${t.id}` },
-    ]),
+    inline_keyboard: [
+      ...tasks.map((t) => [
+        { text: t.name, callback_data: `task:${t.id}` },
+      ]),
+      [{ text: '◀️ Назад', callback_data: backAction }],
+    ],
   };
 }
 
@@ -143,6 +154,7 @@ export function buildFilterKeyboard(): InlineKeyboardMarkup {
       [{ text: '📋 Всі', callback_data: 'filter:all' }],
       [{ text: '📁 За проєктом', callback_data: 'filter:by_project' }],
       [{ text: '👤 За співробітником', callback_data: 'filter:by_employee' }],
+      [{ text: '◀️ Назад', callback_data: 'action:back_to_main' }],
     ],
   };
 }
@@ -153,9 +165,12 @@ export function buildFilterKeyboard(): InlineKeyboardMarkup {
  */
 export function buildAdminListKeyboard(admins: User[]): InlineKeyboardMarkup {
   return {
-    inline_keyboard: admins.map((a) => {
-      const label = a.first_name ?? (a.username ? `@${a.username}` : String(a.telegram_id));
-      return [{ text: `🗑 ${label}`, callback_data: `remove_admin:${a.id}` }];
-    }),
+    inline_keyboard: [
+      ...admins.map((a) => {
+        const label = a.first_name ?? (a.username ? `@${a.username}` : String(a.telegram_id));
+        return [{ text: `🗑 ${label}`, callback_data: `remove_admin:${a.id}` }];
+      }),
+      [{ text: '◀️ Назад', callback_data: 'action:manage_admins' }],
+    ],
   };
 }

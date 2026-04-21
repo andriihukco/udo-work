@@ -14,6 +14,7 @@
 import * as telegramClient from '@/lib/telegram/client';
 import * as employeeHandlers from '@/lib/handlers/employee.handlers';
 import * as adminHandlers from '@/lib/handlers/admin.handlers';
+import { sessionService } from '@/lib/services/session.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
 import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU } from '@/lib/telegram/keyboards';
@@ -30,6 +31,7 @@ const EMPLOYEE_ONLY_ACTIONS = new Set([
   'resume_task',
   'complete_task',
   'my_activity',
+  'back_to_main',
 ]);
 
 /** callback_data action values that only admins may use. */
@@ -42,6 +44,7 @@ const ADMIN_ONLY_ACTIONS = new Set([
   'add_admin',
   'add_employee',
   'remove_admin',
+  'back_to_main',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -123,7 +126,7 @@ export async function route(
         await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
         return;
       }
-      await adminHandlers.handleNewAdminIdInput(ctx, text);
+      await adminHandlers.handleNewAdminIdInput(ctx, message);
       return;
     }
 
@@ -132,7 +135,7 @@ export async function route(
         await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
         return;
       }
-      await adminHandlers.handleNewEmployeeIdInput(ctx, text);
+      await adminHandlers.handleNewEmployeeIdInput(ctx, message);
       return;
     }
 
@@ -188,6 +191,24 @@ async function handleCallbackData(
   // -------------------------------------------------------------------------
   if (data.startsWith('action:')) {
     const action = data.slice('action:'.length);
+
+    // back_to_main works for any role
+    if (action === 'back_to_main') {
+      if (ctx.messageId) {
+        const text = user.role === 'admin' ? MESSAGES.MAIN_MENU_ADMIN : MESSAGES.MAIN_MENU_EMPLOYEE;
+        const keyboard = user.role === 'admin' ? ADMIN_MAIN_MENU : EMPLOYEE_MAIN_MENU;
+        await telegramClient.editMessageText(chatId, ctx.messageId, text, { reply_markup: keyboard });
+      } else {
+        if (user.role === 'admin') {
+          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, { reply_markup: ADMIN_MAIN_MENU });
+        } else {
+          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, { reply_markup: EMPLOYEE_MAIN_MENU });
+        }
+      }
+      // Reset session state when going back to main
+      await sessionService.resetSession(user.id).catch(() => {});
+      return;
+    }
 
     // Employee-only actions (Req 15.2)
     if (EMPLOYEE_ONLY_ACTIONS.has(action)) {

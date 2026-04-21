@@ -91,6 +91,8 @@ export interface TelegramMessage {
   text?: string;
   document?: TelegramDocument;
   photo?: TelegramPhotoSize[];
+  forward_from?: TelegramUser;
+  forward_sender_name?: string;
 }
 
 export interface TelegramCallbackQuery {

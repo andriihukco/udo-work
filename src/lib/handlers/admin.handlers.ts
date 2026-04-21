@@ -276,7 +276,7 @@ export async function handleEmployeeDetail(
   ctx: HandlerContext,
   userId: string,
 ): Promise<void> {
-  const { chatId } = ctx;
+  const { chatId, messageId } = ctx;
 
   try {
     const startOfWeek = getStartOfWeek();
@@ -289,12 +289,15 @@ export async function handleEmployeeDetail(
     const employee = employees.find((e) => e.id === userId);
     const displayName = employee ? userService.getDisplayName(employee) : userId;
 
+    const backKeyboard = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:employees' }]] };
+
     if (activities.length === 0) {
-      await telegramClient.sendMessage(
-        chatId,
-        `👤 *${escapeMarkdown(displayName)}*\n\n📭 За поточний тиждень задач не знайдено.`,
-        { parse_mode: 'Markdown' },
-      );
+      const text = `👤 *${escapeMarkdown(displayName)}*\n\n📭 За поточний тиждень задач не знайдено.`;
+      if (messageId) {
+        await telegramClient.editMessageText(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
+      } else {
+        await telegramClient.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
+      }
       return;
     }
 
@@ -322,9 +325,12 @@ export async function handleEmployeeDetail(
 
     lines.push(`\n*Загалом за тиждень:* ${formatTimeSpent(totalTime)}`);
 
-    await telegramClient.sendMessage(chatId, lines.join('\n'), {
-      parse_mode: 'Markdown',
-    });
+    const text = lines.join('\n');
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
+    } else {
+      await telegramClient.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -434,7 +440,7 @@ export async function handleTaskDetail(
   ctx: HandlerContext,
   taskId: string,
 ): Promise<void> {
-  const { chatId } = ctx;
+  const { chatId, messageId } = ctx;
 
   try {
     const [timeLogs, attachments] = await Promise.all([
@@ -477,9 +483,14 @@ export async function handleTaskDetail(
       }
     }
 
-    await telegramClient.sendMessage(chatId, lines.join('\n'), {
-      parse_mode: 'Markdown',
-    });
+    const backKeyboard = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:tasks_logs' }]] };
+    const text = lines.join('\n');
+
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
+    } else {
+      await telegramClient.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: backKeyboard });
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -742,73 +753,121 @@ export async function handleAddEmployee(ctx: HandlerContext): Promise<void> {
 }
 
 /**
- * Processes the Telegram ID input for adding a new admin.
+ * Resolves a Telegram user from a forwarded message, @username, or numeric ID.
+ * Returns { telegramId, firstName, username } or null if unresolvable.
  */
-export async function handleNewAdminIdInput(
-  ctx: HandlerContext,
-  text: string,
-): Promise<void> {
-  const { user, chatId } = ctx;
-
-  const telegramId = parseInt(text.trim(), 10);
-  if (isNaN(telegramId) || telegramId <= 0) {
-    await telegramClient.sendMessage(chatId, MESSAGES.INVALID_TELEGRAM_ID);
-    return;
+async function resolveUserFromMessage(
+  message: import('@/types/index').TelegramMessage,
+): Promise<{ telegramId: number; firstName?: string; username?: string } | null> {
+  // 1. Forwarded message — best case, we get the real ID
+  if (message.forward_from) {
+    return {
+      telegramId: message.forward_from.id,
+      firstName: message.forward_from.first_name,
+      username: message.forward_from.username,
+    };
   }
 
-  try {
-    await userService.createUser(telegramId, 'admin');
-    await sessionService.resetSession(user.id);
-    await telegramClient.sendMessage(
-      chatId,
-      MESSAGES.USER_ADDED_ADMIN(telegramId),
-      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
-    );
-  } catch (err) {
-    if (err instanceof DatabaseError && String(err.message).includes('Failed to create')) {
-      // Likely a duplicate — check by trying to find the user
-      const existing = await userService.findByTelegramId(telegramId).catch(() => null);
-      if (existing) {
-        await telegramClient.sendMessage(chatId, MESSAGES.USER_ALREADY_EXISTS);
-        return;
-      }
-    }
-    await sessionService.resetSession(user.id);
-    await sendDbError(chatId, err);
+  const text = message.text?.trim() ?? '';
+
+  // 2. @username
+  if (text.startsWith('@')) {
+    const username = text.slice(1);
+    // We can't look up a Telegram ID by username via Bot API without the user
+    // having messaged the bot first. Return username for storage only.
+    return { telegramId: 0, username };
   }
+
+  // 3. Numeric ID
+  const id = parseInt(text, 10);
+  if (!isNaN(id) && id > 0) {
+    return { telegramId: id };
+  }
+
+  return null;
 }
 
 /**
- * Processes the Telegram ID input for adding a new employee.
+ * Processes the message input for adding a new admin.
+ * Accepts: forwarded message, @username, or numeric ID.
+ */
+export async function handleNewAdminIdInput(
+  ctx: HandlerContext,
+  message: import('@/types/index').TelegramMessage,
+): Promise<void> {
+  const { user, chatId } = ctx;
+  await handleAddUserInput(ctx, message, 'admin');
+}
+
+/**
+ * Processes the message input for adding a new employee.
  */
 export async function handleNewEmployeeIdInput(
   ctx: HandlerContext,
-  text: string,
+  message: import('@/types/index').TelegramMessage,
+): Promise<void> {
+  await handleAddUserInput(ctx, message, 'employee');
+}
+
+async function handleAddUserInput(
+  ctx: HandlerContext,
+  message: import('@/types/index').TelegramMessage,
+  role: 'admin' | 'employee',
 ): Promise<void> {
   const { user, chatId } = ctx;
+  const backKeyboard = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:manage_admins' }]] };
 
-  const telegramId = parseInt(text.trim(), 10);
-  if (isNaN(telegramId) || telegramId <= 0) {
-    await telegramClient.sendMessage(chatId, MESSAGES.INVALID_TELEGRAM_ID);
+  const resolved = await resolveUserFromMessage(message);
+
+  if (!resolved) {
+    await telegramClient.sendMessage(chatId, MESSAGES.INVALID_TELEGRAM_ID, { reply_markup: backKeyboard });
+    return;
+  }
+
+  // Username-only path: we can't register without a real ID
+  if (resolved.telegramId === 0) {
+    await telegramClient.sendMessage(
+      chatId,
+      `⚠️ Не вдалося отримати Telegram ID для @${resolved.username}.\n\n` +
+      `Попросіть цю людину написати боту будь-яке повідомлення, а потім перешліть його вам — тоді перешліть його сюди.`,
+      { reply_markup: backKeyboard },
+    );
     return;
   }
 
   try {
-    await userService.createUser(telegramId, 'employee');
+    // Check if already exists
+    const existing = await userService.findByTelegramId(resolved.telegramId);
+    if (existing) {
+      await telegramClient.sendMessage(
+        chatId,
+        `⚠️ Користувач вже зареєстрований як *${existing.role === 'admin' ? 'адмін' : 'співробітник'}*.\n` +
+        `Ім'я: ${escapeMarkdown(userService.getDisplayName(existing))}`,
+        { parse_mode: 'Markdown', reply_markup: backKeyboard },
+      );
+      return;
+    }
+
+    await userService.createUser(
+      resolved.telegramId,
+      role,
+      resolved.firstName,
+      resolved.username,
+    );
+
     await sessionService.resetSession(user.id);
+
+    const displayName = resolved.firstName ?? (resolved.username ? `@${resolved.username}` : String(resolved.telegramId));
+    const msg = role === 'admin'
+      ? MESSAGES.USER_ADDED_ADMIN(resolved.telegramId)
+      : MESSAGES.USER_ADDED_EMPLOYEE(resolved.telegramId);
+
     await telegramClient.sendMessage(
       chatId,
-      MESSAGES.USER_ADDED_EMPLOYEE(telegramId),
+      `${msg}\n👤 ${escapeMarkdown(displayName)}`,
       { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
     );
   } catch (err) {
-    if (err instanceof DatabaseError && String(err.message).includes('Failed to create')) {
-      const existing = await userService.findByTelegramId(telegramId).catch(() => null);
-      if (existing) {
-        await telegramClient.sendMessage(chatId, MESSAGES.USER_ALREADY_EXISTS);
-        return;
-      }
-    }
     await sessionService.resetSession(user.id);
     await sendDbError(chatId, err);
   }

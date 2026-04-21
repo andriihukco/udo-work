@@ -76,26 +76,40 @@ async function sendStorageError(chatId: number, err: unknown): Promise<void> {
  * Req 3.1, 3.4, 16.3
  */
 export async function handleStartTask(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
+  const { user, chatId, messageId } = ctx;
 
   try {
     // Check for existing active task (Req 3.4)
     const activeTask = await taskService.getActiveTask(user.id);
     if (activeTask) {
-      await telegramClient.sendMessage(chatId, MESSAGES.ACTIVE_TASK_EXISTS);
+      const text = MESSAGES.ACTIVE_TASK_EXISTS;
+      if (messageId) {
+        await telegramClient.editMessageText(chatId, messageId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      } else {
+        await telegramClient.sendMessage(chatId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      }
       return;
     }
 
     // Fetch active projects (Req 3.1, 16.3)
     const projects = await projectService.getActiveProjects();
     if (projects.length === 0) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_PROJECTS);
+      const text = MESSAGES.NO_ACTIVE_PROJECTS;
+      if (messageId) {
+        await telegramClient.editMessageText(chatId, messageId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      } else {
+        await telegramClient.sendMessage(chatId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      }
       return;
     }
 
-    await telegramClient.sendMessage(chatId, '📁 Оберіть проєкт:', {
-      reply_markup: buildProjectKeyboard(projects),
-    });
+    const text = '📁 Оберіть проєкт:';
+    const keyboard = buildProjectKeyboard(projects, 'action:back_to_main');
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, { reply_markup: keyboard });
+    } else {
+      await telegramClient.sendMessage(chatId, text, { reply_markup: keyboard });
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -207,21 +221,33 @@ export async function handleTaskNameInput(
  * Req 4.1–4.4
  */
 export async function handlePauseTask(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
+  const { user, chatId, messageId } = ctx;
 
   try {
     const { task, timeLog } = await taskService.pauseTask(user.id);
 
     await sessionService.resetSession(user.id);
 
-    await telegramClient.sendMessage(
-      chatId,
-      MESSAGES.TASK_PAUSED(task.name, timeLog.paused_at ?? new Date().toISOString()),
-      { parse_mode: 'Markdown' },
-    );
+    const text = MESSAGES.TASK_PAUSED(task.name, timeLog.paused_at ?? new Date().toISOString());
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: EMPLOYEE_MAIN_MENU,
+      });
+    } else {
+      await telegramClient.sendMessage(chatId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: EMPLOYEE_MAIN_MENU,
+      });
+    }
   } catch (err) {
     if (err instanceof NoActiveTaskError) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_TASK);
+      const text = MESSAGES.NO_ACTIVE_TASK;
+      if (ctx.messageId) {
+        await telegramClient.editMessageText(chatId, ctx.messageId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      } else {
+        await telegramClient.sendMessage(chatId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      }
     } else {
       await sendDbError(chatId, err);
     }
@@ -237,21 +263,33 @@ export async function handlePauseTask(ctx: HandlerContext): Promise<void> {
  * Req 5.1–5.4
  */
 export async function handleResumeTask(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
+  const { user, chatId, messageId } = ctx;
 
   try {
     const { task, timeLog } = await taskService.resumeTask(user.id);
 
     await sessionService.resetSession(user.id);
 
-    await telegramClient.sendMessage(
-      chatId,
-      MESSAGES.TASK_RESUMED(task.name, timeLog.started_at),
-      { parse_mode: 'Markdown' },
-    );
+    const text = MESSAGES.TASK_RESUMED(task.name, timeLog.started_at);
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: EMPLOYEE_MAIN_MENU,
+      });
+    } else {
+      await telegramClient.sendMessage(chatId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: EMPLOYEE_MAIN_MENU,
+      });
+    }
   } catch (err) {
     if (err instanceof NoPausedTaskError) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_PAUSED_TASK);
+      const text = MESSAGES.NO_PAUSED_TASK;
+      if (ctx.messageId) {
+        await telegramClient.editMessageText(chatId, ctx.messageId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      } else {
+        await telegramClient.sendMessage(chatId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      }
     } else {
       await sendDbError(chatId, err);
     }
@@ -268,12 +306,17 @@ export async function handleResumeTask(ctx: HandlerContext): Promise<void> {
  * Req 6.1–6.3
  */
 export async function handleCompleteTask(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
+  const { user, chatId, messageId } = ctx;
 
   try {
     const activeTask = await taskService.getActiveTask(user.id);
     if (!activeTask) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_TASK);
+      const text = MESSAGES.NO_ACTIVE_TASK;
+      if (messageId) {
+        await telegramClient.editMessageText(chatId, messageId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      } else {
+        await telegramClient.sendMessage(chatId, text, { reply_markup: EMPLOYEE_MAIN_MENU });
+      }
       return;
     }
 
@@ -286,9 +329,18 @@ export async function handleCompleteTask(ctx: HandlerContext): Promise<void> {
 
     await sessionService.setState(user.id, 'awaiting_deliverable_choice', sessionCtx as unknown as Record<string, unknown>);
 
-    await telegramClient.sendMessage(chatId, MESSAGES.ATTACH_DELIVERABLE_PROMPT, {
-      reply_markup: DELIVERABLE_CHOICE_KEYBOARD,
-    });
+    const text = `✅ *${escapeMarkdown(activeTask.name)}*\n\n${MESSAGES.ATTACH_DELIVERABLE_PROMPT}`;
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: DELIVERABLE_CHOICE_KEYBOARD,
+      });
+    } else {
+      await telegramClient.sendMessage(chatId, text, {
+        parse_mode: 'Markdown',
+        reply_markup: DELIVERABLE_CHOICE_KEYBOARD,
+      });
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -457,7 +509,7 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
     await telegramClient.sendMessage(
       chatId,
       MESSAGES.TASK_COMPLETED(task.name, totalTime),
-      { parse_mode: 'Markdown' },
+      { parse_mode: 'Markdown', reply_markup: EMPLOYEE_MAIN_MENU },
     );
 
     // Fetch attachments and project for admin notification (Req 11.2)
@@ -475,7 +527,7 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
     }
   } catch (err) {
     if (err instanceof NoActiveTaskError) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_TASK);
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_TASK, { reply_markup: EMPLOYEE_MAIN_MENU });
     } else {
       await sendDbError(chatId, err);
     }
@@ -491,11 +543,14 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
  * Req 8.1
  */
 export async function handleMyActivity(ctx: HandlerContext): Promise<void> {
-  const { chatId } = ctx;
+  const { chatId, messageId } = ctx;
 
-  await telegramClient.sendMessage(chatId, '📊 Оберіть період:', {
-    reply_markup: ACTIVITY_PERIOD_KEYBOARD,
-  });
+  const text = '📊 Оберіть період:';
+  if (messageId) {
+    await telegramClient.editMessageText(chatId, messageId, text, { reply_markup: ACTIVITY_PERIOD_KEYBOARD });
+  } else {
+    await telegramClient.sendMessage(chatId, text, { reply_markup: ACTIVITY_PERIOD_KEYBOARD });
+  }
 }
 
 /**
@@ -508,7 +563,7 @@ export async function handleActivityPeriod(
   ctx: HandlerContext,
   period: string,
 ): Promise<void> {
-  const { user, chatId } = ctx;
+  const { user, chatId, messageId } = ctx;
 
   try {
     let from: Date;
@@ -525,22 +580,30 @@ export async function handleActivityPeriod(
 
     const activities = await taskService.getTasksForUser(user.id, from, to);
 
+    const backKeyboard = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:my_activity' }]] };
+
     if (activities.length === 0) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVITY);
+      if (messageId) {
+        await telegramClient.editMessageText(chatId, messageId, MESSAGES.NO_ACTIVITY, { reply_markup: backKeyboard });
+      } else {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVITY, { reply_markup: backKeyboard });
+      }
       return;
     }
 
-    let reportText: string;
+    const reportText = period === 'today' ? formatTodayReport(activities) : formatWeeklyReport(activities);
 
-    if (period === 'today') {
-      reportText = formatTodayReport(activities);
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, reportText, {
+        parse_mode: 'Markdown',
+        reply_markup: backKeyboard,
+      });
     } else {
-      reportText = formatWeeklyReport(activities);
+      await telegramClient.sendMessage(chatId, reportText, {
+        parse_mode: 'Markdown',
+        reply_markup: backKeyboard,
+      });
     }
-
-    await telegramClient.sendMessage(chatId, reportText, {
-      parse_mode: 'Markdown',
-    });
   } catch (err) {
     await sendDbError(chatId, err);
   }

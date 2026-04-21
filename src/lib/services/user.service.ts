@@ -23,6 +23,9 @@ export interface UserService {
   /** Find a user by their Telegram ID; returns null if not found. */
   findByTelegramId(telegramId: number): Promise<User | null>;
 
+  /** Find a user by their username (without @); returns null if not found. */
+  findByUsername(username: string): Promise<User | null>;
+
   /**
    * Create a new user.
    * Throws `ValidationError` if `role` is not a valid `UserRole`.
@@ -90,6 +93,22 @@ export const userService: UserService = {
     if (error) {
       logger.error('UserService.findByTelegramId failed', error);
       throw new DatabaseError('Failed to find user by Telegram ID');
+    }
+
+    return data ? mapRow(data as UserRow) : null;
+  },
+
+  async findByUsername(username: string): Promise<User | null> {
+    const clean = username.replace(/^@/, '').toLowerCase();
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, telegram_id, role, first_name, username, created_at')
+      .ilike('username', clean)
+      .maybeSingle();
+
+    if (error) {
+      logger.error('UserService.findByUsername failed', error);
+      throw new DatabaseError('Failed to find user by username');
     }
 
     return data ? mapRow(data as UserRow) : null;
