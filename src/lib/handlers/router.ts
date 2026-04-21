@@ -38,6 +38,10 @@ const ADMIN_ONLY_ACTIONS = new Set([
   'deactivate_project',
   'employees',
   'tasks_logs',
+  'manage_admins',
+  'add_admin',
+  'add_employee',
+  'remove_admin',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -63,9 +67,13 @@ export async function route(
     const callbackQuery = update.callback_query;
     const callbackQueryId = callbackQuery.id;
     const data = callbackQuery.data ?? '';
+    const messageId = callbackQuery.message?.message_id;
+
+    // Pass messageId so handlers can edit the message in place
+    const ctxWithMessage: HandlerContext = { ...ctx, messageId };
 
     try {
-      await handleCallbackData(data, ctx);
+      await handleCallbackData(data, ctxWithMessage);
     } finally {
       // Always answer the callback query to dismiss the loading indicator
       telegramClient
@@ -107,6 +115,24 @@ export async function route(
         return;
       }
       await adminHandlers.handleProjectNameInput(ctx, text);
+      return;
+    }
+
+    if (state === 'awaiting_new_admin_id') {
+      if (user.role !== 'admin') {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      await adminHandlers.handleNewAdminIdInput(ctx, text);
+      return;
+    }
+
+    if (state === 'awaiting_new_employee_id') {
+      if (user.role !== 'admin') {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      await adminHandlers.handleNewEmployeeIdInput(ctx, text);
       return;
     }
 
@@ -212,6 +238,18 @@ async function handleCallbackData(
         case 'tasks_logs':
           await adminHandlers.handleTasksLogs(ctx);
           break;
+        case 'manage_admins':
+          await adminHandlers.handleManageAdmins(ctx);
+          break;
+        case 'add_admin':
+          await adminHandlers.handleAddAdmin(ctx);
+          break;
+        case 'add_employee':
+          await adminHandlers.handleAddEmployee(ctx);
+          break;
+        case 'remove_admin':
+          await adminHandlers.handleRemoveAdmin(ctx);
+          break;
         default:
           logger.warn('router: unhandled admin action', action);
       }
@@ -316,6 +354,19 @@ async function handleCallbackData(
     }
     const filter = data.slice('filter:'.length);
     await adminHandlers.handleTasksFilter(ctx, filter);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // remove_admin:{userId} prefix — admin only
+  // -------------------------------------------------------------------------
+  if (data.startsWith('remove_admin:')) {
+    if (user.role !== 'admin') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const targetUserId = data.slice('remove_admin:'.length);
+    await adminHandlers.handleRemoveAdminConfirm(ctx, targetUserId);
     return;
   }
 

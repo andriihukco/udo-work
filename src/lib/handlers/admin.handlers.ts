@@ -27,9 +27,11 @@ import {
   buildTaskListKeyboard,
   buildPaginationKeyboard,
   buildFilterKeyboard,
+  buildAdminListKeyboard,
   ADMIN_MAIN_MENU,
+  MANAGE_USERS_KEYBOARD,
 } from '@/lib/telegram/keyboards';
-import { DuplicateProjectError } from '@/types/index';
+import { DuplicateProjectError, DatabaseError } from '@/types/index';
 import type {
   HandlerContext,
   TimeSpent,
@@ -95,14 +97,16 @@ function getStatusLabel(status: string): string {
  * Req 2.1
  */
 export async function handleCreateProject(ctx: HandlerContext): Promise<void> {
-  const { user, chatId } = ctx;
+  const { user, chatId, messageId } = ctx;
 
   try {
     await sessionService.setState(user.id, 'awaiting_project_name');
-    await telegramClient.sendMessage(
-      chatId,
-      '📁 Введіть назву нового проєкту:',
-    );
+    const text = '📁 Введіть назву нового проєкту:';
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text);
+    } else {
+      await telegramClient.sendMessage(chatId, text);
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -149,21 +153,30 @@ export async function handleProjectNameInput(
  * Req 2.3
  */
 export async function handleDeactivateProject(ctx: HandlerContext): Promise<void> {
-  const { chatId } = ctx;
+  const { chatId, messageId } = ctx;
 
   try {
     const projects = await projectService.getActiveProjects();
 
     if (projects.length === 0) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_PROJECTS);
+      if (messageId) {
+        await telegramClient.editMessageText(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS);
+      } else {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_PROJECTS);
+      }
       return;
     }
 
-    await telegramClient.sendMessage(
-      chatId,
-      '🚫 Оберіть проєкт для деактивації:',
-      { reply_markup: buildProjectKeyboard(projects) },
-    );
+    const text = '🚫 Оберіть проєкт для деактивації:';
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, {
+        reply_markup: buildProjectKeyboard(projects),
+      });
+    } else {
+      await telegramClient.sendMessage(chatId, text, {
+        reply_markup: buildProjectKeyboard(projects),
+      });
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -212,13 +225,18 @@ export async function handleDeactivateProjectConfirm(
  * Req 9.1
  */
 export async function handleEmployees(ctx: HandlerContext): Promise<void> {
-  const { chatId } = ctx;
+  const { chatId, messageId } = ctx;
 
   try {
     const employees = await userService.getAllEmployeesWithWeeklyTime();
 
     if (employees.length === 0) {
-      await telegramClient.sendMessage(chatId, '👥 Співробітників не знайдено.');
+      const text = '👥 Співробітників не знайдено.';
+      if (messageId) {
+        await telegramClient.editMessageText(chatId, messageId, text);
+      } else {
+        await telegramClient.sendMessage(chatId, text);
+      }
       return;
     }
 
@@ -234,10 +252,17 @@ export async function handleEmployees(ctx: HandlerContext): Promise<void> {
       lines.push(`👤 *${escapeMarkdown(displayName)}:* ${formatTimeSpent(timeSpent)}`);
     }
 
-    await telegramClient.sendMessage(chatId, lines.join('\n'), {
-      parse_mode: 'Markdown',
+    const text = lines.join('\n');
+    const options = {
+      parse_mode: 'Markdown' as const,
       reply_markup: buildEmployeeListKeyboard(employees),
-    });
+    };
+
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, text, options);
+    } else {
+      await telegramClient.sendMessage(chatId, text, options);
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -315,13 +340,16 @@ export async function handleEmployeeDetail(
  * Req 10.1
  */
 export async function handleTasksLogs(ctx: HandlerContext): Promise<void> {
-  const { chatId } = ctx;
+  const { chatId, messageId } = ctx;
 
-  await telegramClient.sendMessage(
-    chatId,
-    '📋 Оберіть фільтр для перегляду задач:',
-    { reply_markup: buildFilterKeyboard() },
-  );
+  const text = '📋 Оберіть фільтр для перегляду задач:';
+  const options = { reply_markup: buildFilterKeyboard() };
+
+  if (messageId) {
+    await telegramClient.editMessageText(chatId, messageId, text, options);
+  } else {
+    await telegramClient.sendMessage(chatId, text, options);
+  }
 }
 
 /**
@@ -654,6 +682,194 @@ export async function handleEmployeeTasksFilter(
           ],
         },
       },
+    );
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Admin / user management
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows the user management menu.
+ */
+export async function handleManageAdmins(ctx: HandlerContext): Promise<void> {
+  const { chatId, messageId } = ctx;
+
+  try {
+    if (messageId) {
+      await telegramClient.editMessageText(chatId, messageId, MESSAGES.MANAGE_USERS_PROMPT, {
+        reply_markup: MANAGE_USERS_KEYBOARD,
+      });
+    } else {
+      await telegramClient.sendMessage(chatId, MESSAGES.MANAGE_USERS_PROMPT, {
+        reply_markup: MANAGE_USERS_KEYBOARD,
+      });
+    }
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+/**
+ * Starts the "add admin" flow — prompts for a Telegram ID.
+ */
+export async function handleAddAdmin(ctx: HandlerContext): Promise<void> {
+  const { user, chatId } = ctx;
+
+  try {
+    await sessionService.setState(user.id, 'awaiting_new_admin_id');
+    await telegramClient.sendMessage(chatId, MESSAGES.ADD_ADMIN_PROMPT);
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+/**
+ * Starts the "add employee" flow — prompts for a Telegram ID.
+ */
+export async function handleAddEmployee(ctx: HandlerContext): Promise<void> {
+  const { user, chatId } = ctx;
+
+  try {
+    await sessionService.setState(user.id, 'awaiting_new_employee_id');
+    await telegramClient.sendMessage(chatId, MESSAGES.ADD_EMPLOYEE_PROMPT);
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+/**
+ * Processes the Telegram ID input for adding a new admin.
+ */
+export async function handleNewAdminIdInput(
+  ctx: HandlerContext,
+  text: string,
+): Promise<void> {
+  const { user, chatId } = ctx;
+
+  const telegramId = parseInt(text.trim(), 10);
+  if (isNaN(telegramId) || telegramId <= 0) {
+    await telegramClient.sendMessage(chatId, MESSAGES.INVALID_TELEGRAM_ID);
+    return;
+  }
+
+  try {
+    await userService.createUser(telegramId, 'admin');
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(
+      chatId,
+      MESSAGES.USER_ADDED_ADMIN(telegramId),
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
+    );
+  } catch (err) {
+    if (err instanceof DatabaseError && String(err.message).includes('Failed to create')) {
+      // Likely a duplicate — check by trying to find the user
+      const existing = await userService.findByTelegramId(telegramId).catch(() => null);
+      if (existing) {
+        await telegramClient.sendMessage(chatId, MESSAGES.USER_ALREADY_EXISTS);
+        return;
+      }
+    }
+    await sessionService.resetSession(user.id);
+    await sendDbError(chatId, err);
+  }
+}
+
+/**
+ * Processes the Telegram ID input for adding a new employee.
+ */
+export async function handleNewEmployeeIdInput(
+  ctx: HandlerContext,
+  text: string,
+): Promise<void> {
+  const { user, chatId } = ctx;
+
+  const telegramId = parseInt(text.trim(), 10);
+  if (isNaN(telegramId) || telegramId <= 0) {
+    await telegramClient.sendMessage(chatId, MESSAGES.INVALID_TELEGRAM_ID);
+    return;
+  }
+
+  try {
+    await userService.createUser(telegramId, 'employee');
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(
+      chatId,
+      MESSAGES.USER_ADDED_EMPLOYEE(telegramId),
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
+    );
+  } catch (err) {
+    if (err instanceof DatabaseError && String(err.message).includes('Failed to create')) {
+      const existing = await userService.findByTelegramId(telegramId).catch(() => null);
+      if (existing) {
+        await telegramClient.sendMessage(chatId, MESSAGES.USER_ALREADY_EXISTS);
+        return;
+      }
+    }
+    await sessionService.resetSession(user.id);
+    await sendDbError(chatId, err);
+  }
+}
+
+/**
+ * Shows the list of admins that can be removed (excludes the current admin).
+ */
+export async function handleRemoveAdmin(ctx: HandlerContext): Promise<void> {
+  const { user, chatId } = ctx;
+
+  try {
+    const admins = await userService.getAllAdmins();
+    // Exclude self
+    const others = admins.filter((a) => a.id !== user.id);
+
+    if (others.length === 0) {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_ADMINS_TO_REMOVE);
+      return;
+    }
+
+    await telegramClient.sendMessage(
+      chatId,
+      '🗑 Оберіть адміна для видалення:',
+      { reply_markup: buildAdminListKeyboard(others) },
+    );
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+/**
+ * Confirms and executes admin removal.
+ */
+export async function handleRemoveAdminConfirm(
+  ctx: HandlerContext,
+  targetUserId: string,
+): Promise<void> {
+  const { user, chatId } = ctx;
+
+  if (targetUserId === user.id) {
+    await telegramClient.sendMessage(chatId, MESSAGES.CANNOT_REMOVE_SELF);
+    return;
+  }
+
+  try {
+    const admins = await userService.getAllAdmins();
+    const target = admins.find((a) => a.id === targetUserId);
+
+    if (!target) {
+      await telegramClient.sendMessage(chatId, '⚠️ Адміна не знайдено.');
+      return;
+    }
+
+    await userService.deleteUser(targetUserId);
+
+    const name = userService.getDisplayName(target);
+    await telegramClient.sendMessage(
+      chatId,
+      MESSAGES.ADMIN_REMOVED(escapeMarkdown(name)),
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
     );
   } catch (err) {
     await sendDbError(chatId, err);

@@ -139,6 +139,25 @@ export async function editMessageReplyMarkup(
 }
 
 /**
+ * Edits the text (and optionally the keyboard) of an existing message.
+ * Used to update the current message in place instead of sending a new one.
+ * Retries once on failure (Requirement 16.2).
+ */
+export async function editMessageText(
+  chatId: number,
+  messageId: number,
+  text: string,
+  options: SendMessageOptions = {},
+): Promise<void> {
+  await callApi<unknown>('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    ...options,
+  });
+}
+
+/**
  * Answers a callback query to dismiss the loading indicator on the button.
  * Retries once on failure (Requirement 16.2).
  */

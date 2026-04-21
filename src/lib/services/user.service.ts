@@ -40,6 +40,12 @@ export interface UserService {
    */
   getAllEmployeesWithWeeklyTime(): Promise<Array<User & { weeklyMinutes: number }>>;
 
+  /** Returns all admins. */
+  getAllAdmins(): Promise<User[]>;
+
+  /** Deletes a user by their internal UUID. */
+  deleteUser(userId: string): Promise<void>;
+
   /**
    * Returns the best available display name for a user:
    *   1. first_name (if set)
@@ -218,6 +224,38 @@ export const userService: UserService = {
       ...mapRow(e),
       weeklyMinutes: minutesByUser.get(e.id) ?? 0,
     }));
+  },
+
+  /**
+   * Returns all users with role = 'admin'.
+   */
+  async getAllAdmins(): Promise<User[]> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, telegram_id, role, first_name, username, created_at')
+      .eq('role', 'admin');
+
+    if (error) {
+      logger.error('UserService.getAllAdmins failed', error);
+      throw new DatabaseError('Failed to fetch admins');
+    }
+
+    return (data ?? []).map((row) => mapRow(row as UserRow));
+  },
+
+  /**
+   * Deletes a user by their internal UUID.
+   */
+  async deleteUser(userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId);
+
+    if (error) {
+      logger.error('UserService.deleteUser failed', error);
+      throw new DatabaseError('Failed to delete user');
+    }
   },
 
   /**

@@ -258,6 +258,41 @@ export const MESSAGES = {
    */
   SESSION_RESET:
     '🔄 Сесію скинуто. Повертаємось до головного меню.',
+
+  // -------------------------------------------------------------------------
+  // Admin / user management
+  // -------------------------------------------------------------------------
+
+  MANAGE_USERS_PROMPT: '🔑 Управління користувачами. Оберіть дію:',
+
+  ADD_ADMIN_PROMPT:
+    '➕ Введіть Telegram ID нового адміна\n' +
+    '(числовий ID, наприклад: 123456789)\n\n' +
+    'Щоб дізнатися свій ID, напишіть @userinfobot у Telegram.',
+
+  ADD_EMPLOYEE_PROMPT:
+    '➕ Введіть Telegram ID нового співробітника\n' +
+    '(числовий ID, наприклад: 123456789)\n\n' +
+    'Щоб дізнатися ID, напишіть @userinfobot у Telegram.',
+
+  USER_ADDED_ADMIN: (telegramId: number): string =>
+    `✅ Користувача з ID *${telegramId}* додано як адміна.`,
+
+  USER_ADDED_EMPLOYEE: (telegramId: number): string =>
+    `✅ Користувача з ID *${telegramId}* додано як співробітника.`,
+
+  USER_ALREADY_EXISTS:
+    '⚠️ Користувач із таким Telegram ID вже зареєстрований у системі.',
+
+  INVALID_TELEGRAM_ID:
+    '⚠️ Невірний формат. Введіть числовий Telegram ID (наприклад: 123456789).',
+
+  NO_ADMINS_TO_REMOVE: '⚠️ Немає адмінів для видалення (крім вас).',
+
+  ADMIN_REMOVED: (name: string): string =>
+    `✅ Адміна *${name}* видалено з системи.`,
+
+  CANNOT_REMOVE_SELF: '⚠️ Ви не можете видалити самого себе.',
 } as const;
 
 // ---------------------------------------------------------------------------

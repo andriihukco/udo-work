@@ -29,6 +29,16 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
     [{ text: '🚫 Деактивувати проєкт', callback_data: 'action:deactivate_project' }],
     [{ text: '👥 Співробітники', callback_data: 'action:employees' }],
     [{ text: '📋 Задачі та логи', callback_data: 'action:tasks_logs' }],
+    [{ text: '🔑 Управління користувачами', callback_data: 'action:manage_admins' }],
+  ],
+};
+
+/** Admin management keyboard. */
+export const MANAGE_USERS_KEYBOARD: InlineKeyboardMarkup = {
+  inline_keyboard: [
+    [{ text: '➕ Додати адміна', callback_data: 'action:add_admin' }],
+    [{ text: '➕ Додати співробітника', callback_data: 'action:add_employee' }],
+    [{ text: '🗑 Видалити адміна', callback_data: 'action:remove_admin' }],
   ],
 };
 
@@ -134,5 +144,18 @@ export function buildFilterKeyboard(): InlineKeyboardMarkup {
       [{ text: '📁 За проєктом', callback_data: 'filter:by_project' }],
       [{ text: '👤 За співробітником', callback_data: 'filter:by_employee' }],
     ],
+  };
+}
+
+/**
+ * Builds a keyboard listing admins for removal.
+ * Each button carries `remove_admin:{id}` as callback_data.
+ */
+export function buildAdminListKeyboard(admins: User[]): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: admins.map((a) => {
+      const label = a.first_name ?? (a.username ? `@${a.username}` : String(a.telegram_id));
+      return [{ text: `🗑 ${label}`, callback_data: `remove_admin:${a.id}` }];
+    }),
   };
 }

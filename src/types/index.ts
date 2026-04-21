@@ -15,7 +15,9 @@ export type SessionState =
   | 'awaiting_project_name'
   | 'awaiting_task_name'
   | 'awaiting_deliverable'
-  | 'awaiting_deliverable_choice';
+  | 'awaiting_deliverable_choice'
+  | 'awaiting_new_admin_id'
+  | 'awaiting_new_employee_id';
 
 // ---------------------------------------------------------------------------
 // Domain / Database Interfaces
@@ -131,6 +133,8 @@ export interface HandlerContext {
   session: Session;
   telegramId: number;
   chatId: number;
+  /** Message ID of the triggering message — set for callback queries, undefined for text messages. */
+  messageId?: number;
 }
 
 /** Result of a time calculation across one or more TimeLog intervals. */
