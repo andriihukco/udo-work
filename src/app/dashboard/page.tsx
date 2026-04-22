@@ -49,6 +49,7 @@ interface ProjStat {
   name: string;
   taskCount: number;
   activeCount: number;
+  totalMinutes: number;
 }
 
 interface TaskStat {
@@ -56,9 +57,15 @@ interface TaskStat {
   name: string;
   status: 'in_progress' | 'paused' | 'completed';
   projectName: string;
+  projectId: string;
   userName: string;
+  userId: string;
   createdAt: string;
-  weeklyMinutes: number;
+  startedAt: string;
+  completedAt: string | null;
+  totalMinutes: number;
+  activeMinutes: number;
+  logCount: number;
 }
 
 interface StatsData {
@@ -86,24 +93,45 @@ function fmtTime(minutes: number): string {
   return `${h}г ${m}хв`;
 }
 
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
 function displayName(u: DashUser | EmpStat): string {
   if ('first_name' in u) {
-    // u is DashUser
     return u.first_name ?? (u.username ? `@${u.username}` : `ID ${u.telegram_id}`);
   }
-  // u is EmpStat
   return u.name;
 }
 
-function statusBadge(status: TaskStat['status']): JSX.Element {
-  const map: Record<TaskStat['status'], { label: string; cls: string }> = {
-    in_progress: { label: 'В роботі', cls: 'bg-blue-100 text-blue-700' },
-    paused: { label: 'Пауза', cls: 'bg-yellow-100 text-yellow-700' },
-    completed: { label: 'Завершено', cls: 'bg-green-100 text-green-700' },
-  };
-  const { label, cls } = map[status] ?? { label: status, cls: 'bg-gray-100 text-gray-600' };
-  return <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
+// Material Symbol icon component
+function Icon({ name, className = '' }: { name: string; className?: string }) {
+  return <span className={`ms ${className}`}>{name}</span>;
 }
+
+function statusBadge(status: TaskStat['status']): JSX.Element {
+  if (status === 'in_progress') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+      В роботі
+    </span>
+  );
+  if (status === 'paused') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+      <Icon name="pause" className="ms-16" />
+      Пауза
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+      <Icon name="check_circle" className="ms-16" />
+      Завершено
+    </span>
+  );
+}
+// orphaned lines removed
 
 // ─── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -356,10 +384,10 @@ function OverviewTab({ stats }: { stats: StatsData }) {
                   <span>{t.userName}</span>
                   <span>·</span>
                   <span>{t.projectName}</span>
-                  {t.weeklyMinutes > 0 && (
+                  {t.totalMinutes > 0 && (
                     <>
                       <span>·</span>
-                      <span>{fmtTime(t.weeklyMinutes)}</span>
+                      <span className="text-blue-500">{fmtTime(t.totalMinutes + t.activeMinutes)}</span>
                     </>
                   )}
                 </div>
@@ -583,39 +611,35 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
             const pStat = getProjStat(p.id);
             const isConfirming = confirmDelete === p.id;
             return (
-              <div key={p.id} className={`bg-white rounded-xl px-4 py-3 shadow-sm ${!p.is_active ? 'opacity-60' : ''}`}>
+              <div key={p.id} className={`bg-white rounded-2xl px-4 py-3 shadow-sm ${!p.is_active ? 'opacity-60' : ''}`}>
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                      <p className="font-medium text-gray-800 truncate">{p.name}</p>
                       {!p.is_active && (
                         <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Неактивний</span>
                       )}
-                      {pStat && (
-                        <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
-                          {pStat.taskCount} задач
-                        </span>
-                      )}
                     </div>
-                    {pStat && pStat.activeCount > 0 && (
-                      <p className="text-xs text-green-600 mt-0.5">{pStat.activeCount} активних</p>
-                    )}
+                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                      {pStat && <span className="inline-flex items-center gap-1"><Icon name="task_alt" className="ms-16" />{pStat.taskCount} задач</span>}
+                      {pStat && pStat.totalMinutes > 0 && <span className="inline-flex items-center gap-1 text-blue-500 font-medium"><Icon name="timer" className="ms-16" />{fmtTime(pStat.totalMinutes)}</span>}
+                      {pStat && pStat.activeCount > 0 && <span className="inline-flex items-center gap-1 text-green-600"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />{pStat.activeCount} активних</span>}
+                    </div>
                   </div>
                   {!isConfirming && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center">
                       <button
                         onClick={() => onToggle(p.id, !p.is_active)}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-base"
+                        className="w-11 h-11 flex items-center justify-center rounded-xl active:bg-gray-100"
                         title={p.is_active ? 'Деактивувати' : 'Активувати'}
                       >
-                        {p.is_active ? '🟢' : '🔴'}
+                        <Icon name={p.is_active ? 'toggle_on' : 'toggle_off'} className={`ms-24 ${p.is_active ? 'text-green-500' : 'text-gray-400'}`} />
                       </button>
                       <button
                         onClick={() => setConfirmDelete(p.id)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Видалити"
+                        className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-red-500 rounded-xl active:bg-red-50"
                       >
-                        🗑
+                        <Icon name="delete" className="ms-18" />
                       </button>
                     </div>
                   )}
@@ -666,61 +690,100 @@ function TasksTab({ tasks }: { tasks: TaskStat[] }) {
     return matchStatus && matchSearch;
   });
 
-  const chips: { key: 'all' | TaskStat['status']; label: string }[] = [
-    { key: 'all', label: 'Всі' },
-    { key: 'in_progress', label: 'В роботі' },
-    { key: 'paused', label: 'Пауза' },
-    { key: 'completed', label: 'Завершено' },
+  const chips: { key: 'all' | TaskStat['status']; label: string; icon: string }[] = [
+    { key: 'all', label: 'Всі', icon: 'list' },
+    { key: 'in_progress', label: 'В роботі', icon: 'play_circle' },
+    { key: 'paused', label: 'Пауза', icon: 'pause_circle' },
+    { key: 'completed', label: 'Завершено', icon: 'check_circle' },
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <input
-        type="text"
+        type="search"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Пошук задач..."
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        placeholder="Пошук задач, людини, проєкту..."
+        className="w-full border border-gray-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
       />
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
         {chips.map((c) => (
           <button
             key={c.key}
             onClick={() => setStatusFilter(c.key)}
-            className={`text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+            className={`flex-shrink-0 inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-full transition-colors ${
               statusFilter === c.key
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-white border border-gray-200 text-gray-600'
             }`}
           >
+            <Icon name={c.icon} className="ms-18" />
             {c.label}
           </button>
         ))}
       </div>
 
+      <div className="text-xs text-gray-400 px-1">{filtered.length} задач</div>
+
       {filtered.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-8">Задач не знайдено</p>
       ) : (
         <div className="space-y-2">
-          {filtered.map((t) => (
-            <div key={t.id} className="bg-white rounded-xl px-4 py-3 shadow-sm">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 truncate">{t.name}</p>
-                {statusBadge(t.status)}
+          {filtered.map((t) => {
+            const displayMinutes = t.totalMinutes + (t.status === 'in_progress' ? t.activeMinutes : 0);
+            return (
+              <div key={t.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+                {/* Title row */}
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <p className="font-medium text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
+                  {statusBadge(t.status)}
+                </div>
+
+                {/* Meta row */}
+                <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="person" className="ms-16 text-gray-400" />
+                    {t.userName}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="folder" className="ms-16 text-gray-400" />
+                    {t.projectName}
+                  </span>
+                </div>
+
+                {/* Time row */}
+                <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
+                  <span className={`inline-flex items-center gap-1 font-semibold ${displayMinutes > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                    <Icon name="timer" className="ms-16" />
+                    {fmtTime(displayMinutes)}
+                    {t.status === 'in_progress' && t.activeMinutes > 0 && (
+                      <span className="text-blue-400 font-normal">(зараз)</span>
+                    )}
+                  </span>
+                  {t.logCount > 1 && (
+                    <span className="inline-flex items-center gap-1 text-gray-400">
+                      <Icon name="history" className="ms-16" />
+                      {t.logCount} інтервалів
+                    </span>
+                  )}
+                </div>
+
+                {/* Date row */}
+                <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="play_arrow" className="ms-16" />
+                    {fmtDate(t.startedAt)}
+                  </span>
+                  {t.completedAt && (
+                    <span className="inline-flex items-center gap-1 text-green-600">
+                      <Icon name="check" className="ms-16" />
+                      {fmtDate(t.completedAt)}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 mt-1 text-xs text-gray-400 flex-wrap">
-                <span>{t.userName}</span>
-                <span>·</span>
-                <span>{t.projectName}</span>
-                {t.weeklyMinutes > 0 && (
-                  <>
-                    <span>·</span>
-                    <span className="text-blue-500">{fmtTime(t.weeklyMinutes)}</span>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

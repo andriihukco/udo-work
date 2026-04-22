@@ -15,9 +15,15 @@ export default function RootLayout({
   return (
     <html lang="uk">
       <head>
+        {/* Telegram Mini App SDK */}
         <Script
           src="https://telegram.org/js/telegram-web-app.js"
           strategy="beforeInteractive"
+        />
+        {/* Material Symbols Rounded */}
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
         />
       </head>
       <body>{children}</body>
