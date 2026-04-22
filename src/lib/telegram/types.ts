@@ -12,6 +12,8 @@ export interface InlineKeyboardButton {
   callback_data?: string;
   /** HTTP URL to open when the button is pressed. */
   url?: string;
+  /** Opens a Mini App when pressed. */
+  web_app?: { url: string };
 }
 
 /**

@@ -127,6 +127,10 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
 
   // Step 6: Delegate to router (Req 13.5)
   const context: HandlerContext = { user, session, telegramId, chatId };
+
+  // Show typing indicator before processing (cosmetic, fire-and-forget)
+  telegramClient.sendChatAction(chatId, 'typing').catch(() => {});
+
   await router.route(update, context);
 }
 

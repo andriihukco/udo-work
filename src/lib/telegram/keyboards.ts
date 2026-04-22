@@ -36,13 +36,14 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
 
 /**
  * Builds the admin main menu with a personalised dashboard link
- * that includes the admin's Telegram ID for auth.
+ * that includes the admin's Telegram ID for auth (browser fallback)
+ * and also works as a Telegram Mini App via WebApp.initDataUnsafe.
  */
 export function buildAdminMainMenu(telegramId: number): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       ...ADMIN_MAIN_MENU.inline_keyboard,
-      [{ text: '📊 Відкрити дашборд', url: `https://udo-work.vercel.app/dashboard?tid=${telegramId}` }],
+      [{ text: '📊 Відкрити дашборд', web_app: { url: `https://udo-work.vercel.app/dashboard?tid=${telegramId}` } }],
     ],
   };
 }

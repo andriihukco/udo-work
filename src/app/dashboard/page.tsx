@@ -808,9 +808,25 @@ export default function DashboardPage() {
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tid = params.get('tid');
-    if (!tid) {
+    // Try Telegram WebApp SDK first (works inside Telegram Mini App)
+    let telegramId: number | null = null;
+
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg?.initDataUnsafe?.user?.id) {
+      telegramId = tg.initDataUnsafe.user.id;
+      // Tell Telegram the app is ready and expand to full height
+      tg.ready?.();
+      tg.expand?.();
+    }
+
+    // Fall back to ?tid= URL param (browser / direct link)
+    if (!telegramId) {
+      const params = new URLSearchParams(window.location.search);
+      const tid = params.get('tid');
+      if (tid) telegramId = Number(tid);
+    }
+
+    if (!telegramId) {
       setAuthState('denied');
       setAuthError('no_tid');
       return;
@@ -819,7 +835,7 @@ export default function DashboardPage() {
     fetch('/api/dashboard/auth', {
       method: 'POST',
       headers: HEADERS,
-      body: JSON.stringify({ telegramId: Number(tid) }),
+      body: JSON.stringify({ telegramId }),
     })
       .then(async (res) => {
         const data = await res.json();

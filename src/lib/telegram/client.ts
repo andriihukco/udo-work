@@ -224,3 +224,14 @@ export async function sendNotification(
     /* skipRetry */ true,
   );
 }
+
+/**
+ * Sends a chat action (e.g. "typing") to show the bot is working.
+ * Errors are silently ignored — this is purely cosmetic.
+ */
+export async function sendChatAction(
+  chatId: number,
+  action: 'typing' | 'upload_document' | 'upload_photo' = 'typing',
+): Promise<void> {
+  await callApi<unknown>('sendChatAction', { chat_id: chatId, action }, /* skipRetry */ true).catch(() => {});
+}
