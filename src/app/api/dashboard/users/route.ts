@@ -20,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const { data, error } = await supabase
     .from('users')
-    .select('id, telegram_id, role, first_name, username, created_at')
+    .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -80,13 +80,14 @@ export async function PATCH(request: Request): Promise<Response> {
 
   try {
     const body = await request.json();
-    const { id, role, firstName } = body;
+    const { id, role, firstName, hourlyRate } = body;
 
     if (!id) return Response.json({ error: 'id required' }, { status: 400 });
 
     const updates: Record<string, unknown> = {};
     if (role && ['admin', 'employee'].includes(role)) updates.role = role;
     if (firstName !== undefined) updates.first_name = firstName || null;
+    if (hourlyRate !== undefined) updates.hourly_rate = hourlyRate === null ? null : Number(hourlyRate);
 
     if (Object.keys(updates).length === 0) {
       return Response.json({ error: 'Nothing to update' }, { status: 400 });

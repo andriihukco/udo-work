@@ -27,6 +27,7 @@ import type { TelegramUpdate, HandlerContext } from '@/types/index';
 /** callback_data action values that only employees may use. */
 const EMPLOYEE_ONLY_ACTIONS = new Set([
   'start_task',
+  'recent_tasks',
   'pause_task',
   'resume_task',
   'complete_task',
@@ -46,7 +47,6 @@ const ADMIN_ONLY_ACTIONS = new Set([
   'remove_admin',
   'remove_employee',
   'back_to_main',
-  'invite_to_project',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -208,6 +208,15 @@ export async function route(
       return;
     }
 
+    if (state === 'awaiting_edit_hourly_rate') {
+      if (user.role !== 'admin') {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      await adminHandlers.handleEditEmployeeRateInput(ctx, text);
+      return;
+    }
+
     if (state === 'awaiting_task_name') {
       // Employee-only state
       if (user.role !== 'employee') {
@@ -215,6 +224,15 @@ export async function route(
         return;
       }
       await employeeHandlers.handleTaskNameInput(ctx, text);
+      return;
+    }
+
+    if (state === 'awaiting_task_comment') {
+      if (user.role !== 'employee') {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      await employeeHandlers.handleTaskCommentInput(ctx, text);
       return;
     }
 
@@ -289,6 +307,9 @@ async function handleCallbackData(
       switch (action) {
         case 'start_task':
           await employeeHandlers.handleStartTask(ctx);
+          break;
+        case 'recent_tasks':
+          await employeeHandlers.handleRecentTasks(ctx);
           break;
         case 'pause_task':
           await employeeHandlers.handlePauseTask(ctx);
@@ -480,6 +501,19 @@ async function handleCallbackData(
   }
 
   // -------------------------------------------------------------------------
+  // edit_rate:{userId} prefix — admin only
+  // -------------------------------------------------------------------------
+  if (data.startsWith('edit_rate:')) {
+    if (user.role !== 'admin') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const targetUserId = data.slice('edit_rate:'.length);
+    await adminHandlers.handleEditEmployeeRate(ctx, targetUserId);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
   // remove_employee:{userId} prefix — admin only
   // -------------------------------------------------------------------------
   if (data.startsWith('remove_employee:')) {
@@ -547,6 +581,32 @@ async function handleCallbackData(
       return;
     }
     await adminHandlers.handlePagination(ctx, prefix, page);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // reuse_task:{taskId} prefix — employee only
+  // -------------------------------------------------------------------------
+  if (data.startsWith('reuse_task:')) {
+    if (user.role !== 'employee') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const taskId = data.slice('reuse_task:'.length);
+    await employeeHandlers.handleReuseTask(ctx, taskId);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // recent_page:{n} prefix — employee only
+  // -------------------------------------------------------------------------
+  if (data.startsWith('recent_page:')) {
+    if (user.role !== 'employee') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const page = parseInt(data.slice('recent_page:'.length), 10);
+    if (!isNaN(page)) await employeeHandlers.handleRecentTasks(ctx, page);
     return;
   }
 

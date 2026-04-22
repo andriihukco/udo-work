@@ -18,7 +18,7 @@ export async function GET(request: Request): Promise<Response> {
 
     // Fetch all time_logs (not just this week) so we can compute total time per task
     const [usersRes, projectsRes, tasksRes, allLogsRes, weekLogsRes] = await Promise.all([
-      supabase.from('users').select('id, telegram_id, role, first_name, username, created_at'),
+      supabase.from('users').select('id, telegram_id, role, first_name, username, hourly_rate, created_at'),
       supabase.from('projects').select('id, name, is_active, created_at'),
       supabase.from('tasks').select('id, project_id, user_id, name, status, created_at'),
       supabase.from('time_logs').select('id, task_id, started_at, paused_at, ended_at'),
@@ -66,6 +66,7 @@ export async function GET(request: Request): Promise<Response> {
         username: u.username,
         weeklyMinutes: weekMinutesByUser.get(u.id) ?? 0,
         activeTasks: tasks.filter((t: any) => t.user_id === u.id && t.status === 'in_progress').length,
+        hourlyRate: u.hourly_rate ?? null,
       }));
 
     const activeProjects = projects.filter((p: any) => p.is_active);

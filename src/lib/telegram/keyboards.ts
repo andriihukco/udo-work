@@ -15,6 +15,7 @@ import type { InlineKeyboardMarkup, ReplyKeyboardMarkup } from './types';
 export const EMPLOYEE_MAIN_MENU: InlineKeyboardMarkup = {
   inline_keyboard: [
     [{ text: '▶️ Почати задачу', callback_data: 'action:start_task' }],
+    [{ text: '🔄 Повторити задачу', callback_data: 'action:recent_tasks' }],
     [{ text: '⏸ Пауза', callback_data: 'action:pause_task' }],
     [{ text: '▶️ Відновити', callback_data: 'action:resume_task' }],
     [{ text: '✅ Завершити задачу', callback_data: 'action:complete_task' }],
@@ -30,7 +31,6 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
     [{ text: '👥 Співробітники', callback_data: 'action:employees' }],
     [{ text: '📋 Задачі та логи', callback_data: 'action:tasks_logs' }],
     [{ text: '🔑 Управління користувачами', callback_data: 'action:manage_admins' }],
-    [{ text: '🔗 Запросити до проєкту', callback_data: 'action:invite_to_project' }],
   ],
 };
 
@@ -116,9 +116,11 @@ export function buildEmployeeListKeyboard(employees: User[], backAction = 'actio
       ...employees.map((e) => {
         const name = e.first_name ?? (e.username ? `@${e.username}` : `ID ${e.telegram_id}`);
         const suffix = e.username && e.first_name ? ` (@${e.username})` : '';
+        const rateLabel = e.hourly_rate ? ` · ${e.hourly_rate}₴` : '';
         return [
-          { text: `${name}${suffix}`, callback_data: `employee:${e.id}` },
+          { text: `${name}${suffix}${rateLabel}`, callback_data: `employee:${e.id}` },
           { text: '✏️', callback_data: `edit_employee:${e.id}` },
+          { text: '💰', callback_data: `edit_rate:${e.id}` },
         ];
       }),
       [{ text: '◀️ Назад', callback_data: backAction }],
@@ -223,6 +225,20 @@ export function buildInviteRoleKeyboard(projectId: string): InlineKeyboardMarkup
       [{ text: '◀️ Назад', callback_data: 'action:invite_to_project' }],
     ],
   };
+}
+
+/**
+ * Builds a keyboard listing recent tasks for reuse.
+ * Each button carries `reuse_task:{id}` as callback_data.
+ */
+export function buildRecentTasksKeyboard(tasks: Task[], page: number, totalPages: number): InlineKeyboardMarkup {
+  const rows = tasks.map((t) => [{ text: `🔄 ${t.name}`, callback_data: `reuse_task:${t.id}` }]);
+  const nav: { text: string; callback_data: string }[] = [];
+  if (page > 0) nav.push({ text: '◀️', callback_data: `recent_page:${page - 1}` });
+  if (page < totalPages - 1) nav.push({ text: '▶️', callback_data: `recent_page:${page + 1}` });
+  if (nav.length > 0) rows.push(nav);
+  rows.push([{ text: '◀️ Назад', callback_data: 'action:back_to_main' }]);
+  return { inline_keyboard: rows };
 }
 
 // ---------------------------------------------------------------------------

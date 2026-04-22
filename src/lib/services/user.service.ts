@@ -58,6 +58,12 @@ export interface UserService {
   /** Updates a user's display name. */
   updateFirstName(userId: string, firstName: string): Promise<void>;
 
+  /** Claims a placeholder user (telegram_id=0) with the real telegram_id and name. */
+  claimPlaceholder(userId: string, telegramId: number, firstName?: string): Promise<void>;
+
+  /** Updates a user's hourly rate in UAH. Pass null to clear. */
+  updateHourlyRate(userId: string, rate: number | null): Promise<void>;
+
   /**
    * Returns the best available display name for a user:
    *   1. first_name (if set)
@@ -79,6 +85,7 @@ function mapRow(row: UserRow): User {
     role: row.role,
     first_name: row.first_name,
     username: row.username,
+    hourly_rate: row.hourly_rate ?? null,
     created_at: row.created_at,
   };
 }
@@ -95,7 +102,7 @@ export const userService: UserService = {
   async findByTelegramId(telegramId: number): Promise<User | null> {
     const { data, error } = await supabase
       .from('users')
-      .select('id, telegram_id, role, first_name, username, created_at')
+      .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
       .eq('telegram_id', telegramId)
       .maybeSingle();
 
@@ -111,7 +118,7 @@ export const userService: UserService = {
     const clean = username.replace(/^@/, '').toLowerCase();
     const { data, error } = await supabase
       .from('users')
-      .select('id, telegram_id, role, first_name, username, created_at')
+      .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
       .ilike('username', clean)
       .maybeSingle();
 
@@ -145,7 +152,7 @@ export const userService: UserService = {
         first_name: firstName ?? null,
         username: username ?? null,
       })
-      .select('id, telegram_id, role, first_name, username, created_at')
+      .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
       .single();
 
     if (error || !data) {
@@ -155,7 +162,6 @@ export const userService: UserService = {
 
     return mapRow(data as UserRow);
   },
-
   /**
    * Aggregates weekly minutes for every employee.
    *
@@ -173,7 +179,7 @@ export const userService: UserService = {
     // Step 1: fetch all employees
     const { data: employeeRows, error: empError } = await supabase
       .from('users')
-      .select('id, telegram_id, role, first_name, username, created_at')
+      .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
       .eq('role', 'employee');
 
     if (empError) {
@@ -260,7 +266,7 @@ export const userService: UserService = {
   async getAllAdmins(): Promise<User[]> {
     const { data, error } = await supabase
       .from('users')
-      .select('id, telegram_id, role, first_name, username, created_at')
+      .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
       .eq('role', 'admin');
 
     if (error) {
@@ -277,7 +283,7 @@ export const userService: UserService = {
   async getAllEmployees(): Promise<User[]> {
     const { data, error } = await supabase
       .from('users')
-      .select('id, telegram_id, role, first_name, username, created_at')
+      .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
       .eq('role', 'employee')
       .order('first_name', { ascending: true });
 
@@ -325,6 +331,32 @@ export const userService: UserService = {
     if (error) {
       logger.error('UserService.updateFirstName failed', error);
       throw new DatabaseError('Failed to update user name');
+    }
+  },
+
+  async claimPlaceholder(userId: string, telegramId: number, firstName?: string): Promise<void> {
+    const updates: Record<string, unknown> = { telegram_id: telegramId };
+    if (firstName) updates.first_name = firstName;
+    const { error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', userId);
+
+    if (error) {
+      logger.error('UserService.claimPlaceholder failed', error);
+      throw new DatabaseError('Failed to claim placeholder user');
+    }
+  },
+
+  async updateHourlyRate(userId: string, rate: number | null): Promise<void> {
+    const { error } = await supabase
+      .from('users')
+      .update({ hourly_rate: rate })
+      .eq('id', userId);
+
+    if (error) {
+      logger.error('UserService.updateHourlyRate failed', error);
+      throw new DatabaseError('Failed to update hourly rate');
     }
   },
 

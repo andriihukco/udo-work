@@ -128,6 +128,7 @@ export const membershipService: MembershipService = {
       role: row.role,
       first_name: row.first_name,
       username: row.username,
+      hourly_rate: row.hourly_rate ?? null,
       created_at: row.created_at,
     }));
   },

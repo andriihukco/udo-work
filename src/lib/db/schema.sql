@@ -8,6 +8,7 @@ CREATE TABLE users (
   role TEXT NOT NULL CHECK (role IN ('admin', 'employee')),
   first_name TEXT,
   username TEXT,
+  hourly_rate NUMERIC(10,2),  -- optional UAH rate per hour
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

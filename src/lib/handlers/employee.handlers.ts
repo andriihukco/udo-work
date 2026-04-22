@@ -16,6 +16,7 @@ import { validateTaskName } from '@/lib/utils/validation';
 import { formatTimeSpent, getStartOfDay, getStartOfWeek } from '@/lib/utils/time';
 import {
   buildProjectKeyboard,
+  buildRecentTasksKeyboard,
   ACTIVITY_PERIOD_KEYBOARD,
   DELIVERABLE_CHOICE_KEYBOARD,
   ADD_MORE_KEYBOARD,
@@ -222,9 +223,32 @@ export async function handleCompleteTask(ctx: HandlerContext): Promise<void> {
       return;
     }
     const sessionCtx: AwaitingDeliverableContext = { taskId: activeTask.id, taskName: activeTask.name, attachmentCount: 0 };
-    await sessionService.setState(user.id, 'awaiting_deliverable_choice', sessionCtx as unknown as Record<string, unknown>);
+    await sessionService.setState(user.id, 'awaiting_task_comment', sessionCtx as unknown as Record<string, unknown>);
     await reply(chatId, messageId,
-      `✅ *${esc(activeTask.name)}*\n\n${MESSAGES.ATTACH_DELIVERABLE_PROMPT}`,
+      `✅ *${esc(activeTask.name)}*\n\n💬 Додайте короткий коментар до задачі:\n_(що було зроблено, результат тощо)_\n\n_/skip — пропустити_`,
+      { parse_mode: 'Markdown' },
+    );
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+export async function handleTaskCommentInput(ctx: HandlerContext, text: string): Promise<void> {
+  const { user, session, chatId } = ctx;
+  const deliverableCtx = session.context as AwaitingDeliverableContext | null;
+  if (!deliverableCtx?.taskId) {
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: EMPLOYEE_MAIN_MENU });
+    return;
+  }
+  try {
+    if (text !== '/skip' && text.trim()) {
+      // Save comment as a text attachment tagged as comment
+      await storageService.saveTextAttachment(deliverableCtx.taskId, `💬 ${text.trim()}`);
+    }
+    await sessionService.setState(user.id, 'awaiting_deliverable_choice', deliverableCtx as unknown as Record<string, unknown>);
+    await telegramClient.sendMessage(chatId,
+      `📎 *${esc(deliverableCtx.taskName)}*\n\n${MESSAGES.ATTACH_DELIVERABLE_PROMPT}`,
       { parse_mode: 'Markdown', reply_markup: DELIVERABLE_CHOICE_KEYBOARD },
     );
   } catch (err) {
@@ -298,16 +322,16 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
   const { user, session, chatId } = ctx;
   try {
     const { task, totalTime } = await taskService.completeTask(user.id);
+    // Use task.id directly — don't rely on potentially stale session context
+    const attachments = await storageService.getAttachments(task.id);
     await sessionService.resetSession(user.id);
     await telegramClient.sendMessage(
       chatId,
       MESSAGES.TASK_COMPLETED(esc(task.name), totalTime),
       { parse_mode: 'Markdown', reply_markup: EMPLOYEE_MAIN_MENU },
     );
-    const deliverableCtx = session.context as AwaitingDeliverableContext | null;
     const project = await projectService.findById(task.project_id);
     if (project) {
-      const attachments = deliverableCtx?.taskId ? await storageService.getAttachments(deliverableCtx.taskId) : [];
       await notificationService
         .notifyTaskCompleted(user, task, project, totalTime, attachments)
         .catch((err) => logger.error('notifyTaskCompleted failed', err));
@@ -318,6 +342,68 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
     } else {
       await sendDbError(chatId, err);
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recent tasks (reuse)
+// ---------------------------------------------------------------------------
+
+export async function handleRecentTasks(ctx: HandlerContext, page = 0): Promise<void> {
+  const { user, chatId, messageId } = ctx;
+  try {
+    const activeTask = await taskService.getActiveTask(user.id);
+    if (activeTask) {
+      await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      return;
+    }
+    const { tasks, total } = await taskService.getTasksWithFilters({ userId: user.id }, page);
+    if (tasks.length === 0 && page === 0) {
+      await reply(chatId, messageId, '📭 У вас ще немає завершених задач для повторного використання.', { reply_markup: EMPLOYEE_MAIN_MENU });
+      return;
+    }
+    const totalPages = Math.ceil(total / 10);
+    const keyboard = buildRecentTasksKeyboard(tasks, page, totalPages);
+    await reply(chatId, messageId,
+      `🔄 *Оберіть задачу для повторення* (стор. ${page + 1}/${Math.max(1, totalPages)}):\n_Або введіть нову назву_`,
+      { parse_mode: 'Markdown', reply_markup: keyboard },
+    );
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+export async function handleReuseTask(ctx: HandlerContext, taskId: string): Promise<void> {
+  const { user, chatId, messageId } = ctx;
+  try {
+    const tasks = await taskService.getTimeLogs(taskId); // just to get task info
+    // Fetch the task directly
+    const { tasks: found } = await taskService.getTasksWithFilters({ userId: user.id }, 0);
+    const original = found.find(t => t.id === taskId);
+    if (!original) {
+      await reply(chatId, messageId, '⚠️ Задачу не знайдено.', { reply_markup: EMPLOYEE_MAIN_MENU });
+      return;
+    }
+    // Store project + suggested name in session, ask to confirm or rename
+    const sessionContext: AwaitingTaskNameContext = {
+      selectedProjectId: original.project_id,
+      selectedProjectName: '', // will be filled below
+    };
+    const project = await projectService.findById(original.project_id);
+    if (!project) {
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      return;
+    }
+    sessionContext.selectedProjectName = project.name;
+    await sessionService.setState(user.id, 'awaiting_task_name', sessionContext as unknown as Record<string, unknown>);
+    await telegramClient.sendMessage(chatId,
+      `📌 Проєкт: *${esc(project.name)}*\n\n` +
+      `Попередня назва: _${esc(original.name)}_\n\n` +
+      `Введіть нову назву або надішліть ту саму:\n_/cancel — скасувати_`,
+      { parse_mode: 'Markdown' },
+    );
+  } catch (err) {
+    await sendDbError(chatId, err);
   }
 }
 

@@ -192,10 +192,16 @@ export async function handleEmployeeDetail(ctx: HandlerContext, userId: string):
       lines.push(`${statusEmoji(a.status)} *${esc(a.taskName)}*\n   📁 ${esc(a.projectName)}\n   📊 ${statusLabel(a.status)}\n   ⏱ ${formatTimeSpent(a.timeSpent)}\n`);
     }
     const totalMin = activities.reduce((s, a) => s + a.timeSpent.totalMinutes, 0);
-    lines.push(`\n*Загалом за тиждень:* ${formatTimeSpent({ hours: Math.floor(totalMin / 60), minutes: totalMin % 60, totalMinutes: totalMin })}`);
+    const totalTime = { hours: Math.floor(totalMin / 60), minutes: totalMin % 60, totalMinutes: totalMin };
+    lines.push(`\n*Загалом за тиждень:* ${formatTimeSpent(totalTime)}`);
 
-    await reply(chatId, messageId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: back });
-  } catch (err) {
+    // Show earnings if rate is set
+    if (employee?.hourly_rate && totalMin > 0) {
+      const earnings = ((totalMin / 60) * employee.hourly_rate).toFixed(0);
+      lines.push(`\n💰 *Заробіток:* ~${earnings} грн _(${employee.hourly_rate} грн/год)_`);
+    }
+
+    await reply(chatId, messageId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: back });  } catch (err) {
     await sendDbError(chatId, err);
   }
 }
@@ -260,26 +266,48 @@ export async function handleTaskDetail(ctx: HandlerContext, taskId: string): Pro
       taskService.getTimeLogs(taskId),
       storageService.getAttachments(taskId),
     ]);
+
+    // Compute total time
+    const totalTime = taskService.calculateTotalTime(timeLogs);
+    const totalStr = totalTime.totalMinutes > 0 ? formatTimeSpent(totalTime) : '—';
+
     const lines = ['📋 *Деталі задачі:*\n'];
+    lines.push(`⏱ *Загальний час:* ${totalStr}\n`);
+
     if (timeLogs.length === 0) {
-      lines.push('⏱ *Логи часу:* відсутні\n');
+      lines.push('📅 *Логи часу:* відсутні\n');
     } else {
-      lines.push('⏱ *Логи часу:*');
+      lines.push(`📅 *Логи часу (${timeLogs.length} інтервалів):*`);
       for (let i = 0; i < timeLogs.length; i++) {
         const log = timeLogs[i];
-        lines.push(`\n*Інтервал ${i + 1}:*`);
-        lines.push(`  🟢 Старт: ${formatDateTime(log.started_at)}`);
-        if (log.paused_at) lines.push(`  ⏸ Пауза: ${formatDateTime(log.paused_at)}`);
-        if (log.ended_at) lines.push(`  🔴 Завершено: ${formatDateTime(log.ended_at)}`);
-        if (!log.paused_at && !log.ended_at) lines.push(`  ▶️ (активний)`);
+        // Compute interval duration
+        const endStr = log.paused_at ?? log.ended_at;
+        let durStr = '';
+        if (endStr) {
+          const diffMin = Math.floor((new Date(endStr).getTime() - new Date(log.started_at).getTime()) / 60000);
+          if (diffMin > 0) {
+            const h = Math.floor(diffMin / 60), m = diffMin % 60;
+            durStr = ` _(${h > 0 ? `${h}г ` : ''}${m}хв)_`;
+          }
+        }
+        lines.push(`\n*${i + 1}.* 🟢 ${formatDateTime(log.started_at)}${durStr}`);
+        if (log.paused_at) lines.push(`   ⏸ ${formatDateTime(log.paused_at)}`);
+        if (log.ended_at) lines.push(`   🔴 ${formatDateTime(log.ended_at)}`);
+        if (!log.paused_at && !log.ended_at) lines.push(`   ▶️ _(активний зараз)_`);
       }
     }
+
     if (attachments.length > 0) {
-      lines.push('\n📎 *Результати:*');
+      lines.push('\n📎 *Результати та коментарі:*');
       for (const a of attachments) {
-        lines.push(a.type === 'text' ? `  📝 ${esc(a.content)}` : `  📄 [Файл](${a.content})`);
+        if (a.type === 'text') {
+          lines.push(`  ${esc(a.content)}`);
+        } else {
+          lines.push(`  📄 [Файл](${a.content})`);
+        }
       }
     }
+
     const back = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:tasks_logs' }]] };
     await reply(chatId, messageId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: back });
   } catch (err) {
@@ -503,11 +531,14 @@ async function handleAddUserInput(ctx: HandlerContext, message: TelegramMessage,
           { parse_mode: 'Markdown', reply_markup: backKeyboard });
         return;
       }
-      // Username not in DB — we can't get their Telegram ID without them messaging the bot
+      // Username not in DB — create with telegram_id = 0 as placeholder
+      // When they /start the bot, their real ID will be matched by username
+      const newUser = await userService.createUser(0, role, undefined, resolved.username);
+      await sessionService.resetSession(user.id);
       await telegramClient.sendMessage(chatId,
-        `⚠️ Користувача *@${esc(resolved.username)}* не знайдено в системі.\n\n` +
-        `Щоб додати цю людину, попросіть їх написати боту /start, а потім перешліть їхнє повідомлення сюди.\n\n` +
-        `_Або введіть їх числовий Telegram ID вручну._`,
+        `✅ *@${esc(resolved.username)}* додано як ${role === 'admin' ? 'адміна' : 'співробітника'}.\n\n` +
+        `⚠️ Telegram ID ще невідомий. Коли ця людина напише боту /start, вона автоматично отримає доступ.\n\n` +
+        `_Або введіть їх числовий ID для негайного доступу._`,
         { parse_mode: 'Markdown', reply_markup: backKeyboard });
       return;
     }
@@ -716,6 +747,63 @@ export async function handleEditEmployeeNameInput(ctx: HandlerContext, text: str
     await sessionService.resetSession(user.id);
     await telegramClient.sendMessage(chatId,
       `✅ Ім'я змінено на *${esc(name)}*`,
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
+  } catch (err) {
+    await sessionService.resetSession(user.id);
+    await sendDbError(chatId, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Edit employee hourly rate
+// ---------------------------------------------------------------------------
+
+export async function handleEditEmployeeRate(ctx: HandlerContext, targetUserId: string): Promise<void> {
+  const { user, chatId, messageId } = ctx;
+  try {
+    const employees = await userService.getAllEmployees();
+    const target = employees.find((e) => e.id === targetUserId);
+    if (!target) {
+      await reply(chatId, messageId, '⚠️ Співробітника не знайдено.', { reply_markup: ADMIN_MAIN_MENU });
+      return;
+    }
+    await sessionService.setState(user.id, 'awaiting_edit_hourly_rate', { pendingUserId: targetUserId });
+    const currentRate = target.hourly_rate ? `${target.hourly_rate} грн/год` : 'не встановлено';
+    const name = userService.getDisplayName(target);
+    await telegramClient.sendMessage(chatId,
+      `💰 *Ставка: ${esc(name)}*\n\nПоточна ставка: *${currentRate}*\n\nВведіть нову ставку в грн/год (наприклад: 150):\n_/skip — прибрати ставку_\n_/cancel — скасувати_`,
+      { parse_mode: 'Markdown' });
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+export async function handleEditEmployeeRateInput(ctx: HandlerContext, text: string): Promise<void> {
+  const { user, session, chatId } = ctx;
+  const sessionCtx = session.context as { pendingUserId?: string } | null;
+
+  if (!sessionCtx?.pendingUserId) {
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: ADMIN_MAIN_MENU });
+    return;
+  }
+
+  try {
+    if (text === '/skip') {
+      await userService.updateHourlyRate(sessionCtx.pendingUserId, null);
+      await sessionService.resetSession(user.id);
+      await telegramClient.sendMessage(chatId, '✅ Ставку прибрано.', { reply_markup: ADMIN_MAIN_MENU });
+      return;
+    }
+    const rate = parseFloat(text.replace(',', '.'));
+    if (isNaN(rate) || rate < 0) {
+      await telegramClient.sendMessage(chatId, '⚠️ Введіть коректне число (наприклад: 150 або 87.5).');
+      return;
+    }
+    await userService.updateHourlyRate(sessionCtx.pendingUserId, rate);
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(chatId,
+      `✅ Ставку встановлено: *${rate} грн/год*`,
       { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
   } catch (err) {
     await sessionService.resetSession(user.id);

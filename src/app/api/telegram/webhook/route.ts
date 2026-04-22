@@ -87,7 +87,20 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
   }
 
   // Step 2: Load user (Req 16.5)
-  const user = await userService.findByTelegramId(telegramId);
+  let user = await userService.findByTelegramId(telegramId);
+
+  // If not found by ID, check if a placeholder user exists with this username
+  if (!user) {
+    const tgUser = update.message?.from ?? update.callback_query?.from;
+    if (tgUser?.username) {
+      const byUsername = await userService.findByUsername(tgUser.username);
+      if (byUsername && byUsername.telegram_id === 0) {
+        // Claim the placeholder — update with real telegram_id and name
+        await userService.claimPlaceholder(byUsername.id, telegramId, tgUser.first_name);
+        user = await userService.findByTelegramId(telegramId);
+      }
+    }
+  }
 
   if (!user) {
     await telegramClient.sendMessage(chatId, MESSAGES.NOT_REGISTERED);

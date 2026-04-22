@@ -18,6 +18,7 @@ interface DashUser {
   role: 'admin' | 'employee';
   first_name: string | null;
   username: string | null;
+  hourly_rate: number | null;
   created_at: string;
 }
 
@@ -42,6 +43,7 @@ interface EmpStat {
   username: string | null;
   weeklyMinutes: number;
   activeTasks: number;
+  hourlyRate: number | null;
 }
 
 interface ProjStat {
@@ -360,7 +362,12 @@ function OverviewTab({ stats }: { stats: StatsData }) {
                   <p className="text-sm font-medium text-gray-800 truncate">{emp.name}</p>
                   {emp.username && <p className="text-xs text-gray-400">@{emp.username}</p>}
                 </div>
-                <span className="text-sm font-semibold text-blue-600">{fmtTime(emp.weeklyMinutes)}</span>
+                <div className="text-right">
+                  <div className="text-sm font-semibold text-blue-600">{fmtTime(emp.weeklyMinutes)}</div>
+                  {emp.hourlyRate && emp.weeklyMinutes > 0 && (
+                    <div className="text-xs text-green-600">{Math.round((emp.weeklyMinutes / 60) * emp.hourlyRate)}₴</div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -416,6 +423,8 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [editingRateId, setEditingRateId] = useState<string | null>(null);
+  const [editRate, setEditRate] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -436,6 +445,14 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
   function startEdit(u: DashUser) {
     setEditingId(u.id);
     setEditName(u.first_name ?? '');
+    setEditingRateId(null);
+    setConfirmDelete(null);
+  }
+
+  function startEditRate(u: DashUser) {
+    setEditingRateId(u.id);
+    setEditRate(u.hourly_rate ? String(u.hourly_rate) : '');
+    setEditingId(null);
     setConfirmDelete(null);
   }
 
@@ -444,6 +461,25 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
     try {
       await onEdit(id, editName);
       setEditingId(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveRate(id: string) {
+    setSaving(true);
+    try {
+      const rate = editRate.trim() === '' ? null : parseFloat(editRate.replace(',', '.'));
+      const res = await fetch('/api/dashboard/users', {
+        method: 'PATCH',
+        headers: HEADERS,
+        body: JSON.stringify({ id, hourlyRate: rate }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        // Update local state
+        setEditingRateId(null);
+      }
     } finally {
       setSaving(false);
     }
@@ -474,6 +510,7 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
           {filtered.map((u) => {
             const empStat = getEmpStat(u.id);
             const isEditing = editingId === u.id;
+            const isEditingRate = editingRateId === u.id;
             const isConfirming = confirmDelete === u.id;
             return (
               <div key={u.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
@@ -488,19 +525,23 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                       className="flex-1 border border-blue-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
                       placeholder="Ім'я"
                     />
-                    <button
-                      onClick={() => saveEdit(u.id)}
-                      disabled={saving}
-                      className="bg-blue-600 active:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium disabled:opacity-50"
-                    >
-                      ✓
-                    </button>
-                    <button
-                      onClick={() => setEditingId(null)}
-                      className="bg-gray-100 active:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl"
-                    >
-                      ✕
-                    </button>
+                    <button onClick={() => saveEdit(u.id)} disabled={saving} className="bg-blue-600 active:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium disabled:opacity-50">✓</button>
+                    <button onClick={() => setEditingId(null)} className="bg-gray-100 active:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl">✕</button>
+                  </div>
+                ) : isEditingRate ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500 flex-shrink-0">₴/год</span>
+                    <input
+                      type="number"
+                      value={editRate}
+                      onChange={(e) => setEditRate(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveRate(u.id); if (e.key === 'Escape') setEditingRateId(null); }}
+                      autoFocus
+                      className="flex-1 border border-green-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-400"
+                      placeholder="150"
+                    />
+                    <button onClick={() => saveRate(u.id)} disabled={saving} className="bg-green-600 active:bg-green-700 text-white px-4 py-2 rounded-xl font-medium disabled:opacity-50">✓</button>
+                    <button onClick={() => setEditingRateId(null)} className="bg-gray-100 active:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl">✕</button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
@@ -509,28 +550,18 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-gray-800 truncate">{displayName(u)}</p>
-                      <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+                      <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5 flex-wrap">
                         {u.username && <span>@{u.username}</span>}
-                        {empStat && empStat.weeklyMinutes > 0 && (
-                          <span className="text-blue-500 font-medium">{fmtTime(empStat.weeklyMinutes)}</span>
-                        )}
+                        {empStat && empStat.weeklyMinutes > 0 && <span className="text-blue-500 font-medium">{fmtTime(empStat.weeklyMinutes)}</span>}
+                        {u.hourly_rate && <span className="text-green-600 font-medium">{u.hourly_rate}₴/год</span>}
                         {empStat?.activeTasks ? <span className="text-green-500">● активна</span> : null}
                       </div>
                     </div>
                     {!isConfirming && (
                       <div className="flex items-center">
-                        <button
-                          onClick={() => startEdit(u)}
-                          className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-blue-500 rounded-xl active:bg-blue-50"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => { setConfirmDelete(u.id); setEditingId(null); }}
-                          className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-red-500 rounded-xl active:bg-red-50"
-                        >
-                          🗑
-                        </button>
+                        <button onClick={() => startEdit(u)} className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-blue-500 rounded-xl active:bg-blue-50">✏️</button>
+                        <button onClick={() => startEditRate(u)} className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-green-500 rounded-xl active:bg-green-50">💰</button>
+                        <button onClick={() => { setConfirmDelete(u.id); setEditingId(null); setEditingRateId(null); }} className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-red-500 rounded-xl active:bg-red-50">🗑</button>
                       </div>
                     )}
                   </div>
@@ -538,18 +569,8 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                 {isConfirming && (
                   <div className="mt-2 flex items-center gap-2 justify-end">
                     <span className="text-sm text-red-600">Видалити?</span>
-                    <button
-                      onClick={async () => { await onDelete(u.id); setConfirmDelete(null); }}
-                      className="bg-red-500 active:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium"
-                    >
-                      Так
-                    </button>
-                    <button
-                      onClick={() => setConfirmDelete(null)}
-                      className="bg-gray-100 active:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm"
-                    >
-                      Ні
-                    </button>
+                    <button onClick={async () => { await onDelete(u.id); setConfirmDelete(null); }} className="bg-red-500 active:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium">Так</button>
+                    <button onClick={() => setConfirmDelete(null)} className="bg-gray-100 active:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm">Ні</button>
                   </div>
                 )}
               </div>
@@ -559,11 +580,7 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
       )}
 
       {showAdd && (
-        <UserModal
-          defaultRole="employee"
-          onClose={() => setShowAdd(false)}
-          onSave={onAdd}
-        />
+        <UserModal defaultRole="employee" onClose={() => setShowAdd(false)} onSave={onAdd} />
       )}
     </div>
   );

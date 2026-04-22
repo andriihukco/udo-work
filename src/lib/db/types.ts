@@ -17,6 +17,7 @@ export interface UserRow {
   role: 'admin' | 'employee';
   first_name: string | null;
   username: string | null;
+  hourly_rate: number | null;
   created_at: string;
 }
 

@@ -14,13 +14,15 @@ export type SessionState =
   | 'idle'
   | 'awaiting_project_name'
   | 'awaiting_task_name'
+  | 'awaiting_task_comment'
   | 'awaiting_deliverable'
   | 'awaiting_deliverable_choice'
   | 'awaiting_new_admin_id'
   | 'awaiting_new_employee_id'
   | 'awaiting_new_user_name'
   | 'awaiting_edit_employee_name'
-  | 'awaiting_invite_project_select'
+  | 'awaiting_edit_hourly_rate'
+  | 'awaiting_recent_task_name'  | 'awaiting_invite_project_select'
   | 'awaiting_invite_role_select';
 
 // ---------------------------------------------------------------------------
@@ -33,6 +35,7 @@ export interface User {
   role: UserRole;
   first_name: string | null;
   username: string | null;
+  hourly_rate: number | null;
   created_at: string;
 }
 
