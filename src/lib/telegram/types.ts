@@ -27,3 +27,29 @@ export type InlineKeyboard = InlineKeyboardButton[][];
 export interface InlineKeyboardMarkup {
   inline_keyboard: InlineKeyboard;
 }
+
+/** A single button in a reply keyboard row. */
+export interface KeyboardButton {
+  text: string;
+}
+
+/**
+ * A persistent reply keyboard shown below the message input field.
+ */
+export interface ReplyKeyboardMarkup {
+  keyboard: KeyboardButton[][];
+  resize_keyboard?: boolean;
+  one_time_keyboard?: boolean;
+  input_field_placeholder?: string;
+}
+
+/**
+ * Removes the reply keyboard from the chat.
+ */
+export interface ReplyKeyboardRemove {
+  remove_keyboard: true;
+  selective?: boolean;
+}
+
+/** Union of all reply_markup types accepted by sendMessage. */
+export type ReplyMarkup = InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove;

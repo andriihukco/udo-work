@@ -93,6 +93,9 @@ export async function handleStartTask(ctx: HandlerContext): Promise<void> {
       await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: EMPLOYEE_MAIN_MENU });
       return;
     }
+    // Set state BEFORE showing the keyboard so the router knows this is an
+    // employee project-selection (not an admin deactivation flow).
+    await sessionService.setState(user.id, 'awaiting_task_name', {});
     await reply(chatId, messageId, '📁 Оберіть проєкт:', {
       reply_markup: buildProjectKeyboard(projects, 'action:back_to_main'),
     });

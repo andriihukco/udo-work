@@ -485,12 +485,32 @@ async function handleAddUserInput(ctx: HandlerContext, message: TelegramMessage,
         `Після цього перешліть їхнє повідомлення сюди.\n\n` +
         `_Або введіть їх числовий ID вручну._`,
         { parse_mode: 'Markdown', reply_markup: backKeyboard });
-    } else {
-      await telegramClient.sendMessage(chatId,
-        `⚠️ Не вдалося отримати ID для *@${resolved.username}*\n\n` +
-        `Попросіть цю людину написати боту /start, а потім перешліть їхнє повідомлення сюди.`,
-        { parse_mode: 'Markdown', reply_markup: backKeyboard });
+      return;
     }
+
+    // @username provided — try to find them in the DB
+    if (resolved.username) {
+      const existingByUsername = await userService.findByUsername(resolved.username);
+      if (existingByUsername) {
+        const roleLabel = existingByUsername.role === 'admin' ? '🔑 Адмін' : '👤 Співробітник';
+        const name = userService.getDisplayName(existingByUsername);
+        await telegramClient.sendMessage(chatId,
+          `ℹ️ *Вже зареєстрований*\n\n` +
+          `👤 ${esc(name)}\n` +
+          `${roleLabel}\n` +
+          `🆔 \`${existingByUsername.telegram_id}\``,
+          { parse_mode: 'Markdown', reply_markup: backKeyboard });
+        return;
+      }
+      // Username not in DB — we can't get their Telegram ID without them messaging the bot
+      await telegramClient.sendMessage(chatId,
+        `⚠️ Користувача *@${esc(resolved.username)}* не знайдено в системі.\n\n` +
+        `Щоб додати цю людину, попросіть їх написати боту /start, а потім перешліть їхнє повідомлення сюди.\n\n` +
+        `_Або введіть їх числовий Telegram ID вручну._`,
+        { parse_mode: 'Markdown', reply_markup: backKeyboard });
+      return;
+    }
+
     return;
   }
 

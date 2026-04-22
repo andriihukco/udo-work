@@ -18,7 +18,7 @@ import { userService } from '@/lib/services/user.service';
 import { membershipService } from '@/lib/services/membership.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
-import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU } from '@/lib/telegram/keyboards';
+import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD } from '@/lib/telegram/keyboards';
 import type { TelegramUpdate, HandlerContext, User } from '@/types/index';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +136,8 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
 
 /**
  * Sends the role-appropriate main menu keyboard to the given chat.
+ * Sends the reply keyboard first (persists in the input area), then the
+ * inline menu message so both are visible.
  */
 async function showMainMenu(
   chatId: number,
@@ -143,10 +145,16 @@ async function showMainMenu(
 ): Promise<void> {
   if (role === 'admin') {
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, {
+      reply_markup: ADMIN_REPLY_KEYBOARD,
+    });
+    await telegramClient.sendMessage(chatId, '⚙️ Або оберіть дію з меню нижче:', {
       reply_markup: ADMIN_MAIN_MENU,
     });
   } else {
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
+      reply_markup: EMPLOYEE_REPLY_KEYBOARD,
+    });
+    await telegramClient.sendMessage(chatId, '📋 Або оберіть дію з меню нижче:', {
       reply_markup: EMPLOYEE_MAIN_MENU,
     });
   }

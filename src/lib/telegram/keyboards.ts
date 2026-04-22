@@ -5,7 +5,7 @@
  */
 
 import type { Project, User, Task } from '@/types';
-import type { InlineKeyboardMarkup } from './types';
+import type { InlineKeyboardMarkup, ReplyKeyboardMarkup } from './types';
 
 // ---------------------------------------------------------------------------
 // Static keyboards
@@ -190,3 +190,32 @@ export function buildInviteRoleKeyboard(projectId: string): InlineKeyboardMarkup
     ],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Reply keyboards (persistent keyboard shown below the text input)
+// ---------------------------------------------------------------------------
+
+/**
+ * Persistent reply keyboard for employees.
+ * Mirrors the inline menu but as a native keyboard for faster access.
+ */
+export const EMPLOYEE_REPLY_KEYBOARD: ReplyKeyboardMarkup = {
+  keyboard: [
+    [{ text: '▶️ Почати задачу' }, { text: '✅ Завершити задачу' }],
+    [{ text: '⏸ Пауза' }, { text: '▶️ Відновити' }],
+    [{ text: '📊 Моя активність' }],
+  ],
+  resize_keyboard: true,
+};
+
+/**
+ * Persistent reply keyboard for admins.
+ */
+export const ADMIN_REPLY_KEYBOARD: ReplyKeyboardMarkup = {
+  keyboard: [
+    [{ text: '📁 Створити проєкт' }, { text: '🚫 Деактивувати проєкт' }],
+    [{ text: '👥 Співробітники' }, { text: '📋 Задачі та логи' }],
+    [{ text: '🔑 Управління користувачами' }, { text: '🔗 Запросити до проєкту' }],
+  ],
+  resize_keyboard: true,
+};

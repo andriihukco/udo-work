@@ -17,7 +17,7 @@ import * as adminHandlers from '@/lib/handlers/admin.handlers';
 import { sessionService } from '@/lib/services/session.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
-import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU } from '@/lib/telegram/keyboards';
+import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD } from '@/lib/telegram/keyboards';
 import type { TelegramUpdate, HandlerContext } from '@/types/index';
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,29 @@ const ADMIN_ONLY_ACTIONS = new Set([
   'back_to_main',
   'invite_to_project',
 ]);
+
+// ---------------------------------------------------------------------------
+// Reply keyboard text → action mapping
+// ---------------------------------------------------------------------------
+
+/** Maps reply keyboard button text to the equivalent callback action for employees. */
+const EMPLOYEE_TEXT_ACTIONS: Record<string, string> = {
+  '▶️ Почати задачу': 'start_task',
+  '⏸ Пауза': 'pause_task',
+  '▶️ Відновити': 'resume_task',
+  '✅ Завершити задачу': 'complete_task',
+  '📊 Моя активність': 'my_activity',
+};
+
+/** Maps reply keyboard button text to the equivalent callback action for admins. */
+const ADMIN_TEXT_ACTIONS: Record<string, string> = {
+  '📁 Створити проєкт': 'create_project',
+  '🚫 Деактивувати проєкт': 'deactivate_project',
+  '👥 Співробітники': 'employees',
+  '📋 Задачі та логи': 'tasks_logs',
+  '🔑 Управління користувачами': 'manage_admins',
+  '🔗 Запросити до проєкту': 'invite_to_project',
+};
 
 // ---------------------------------------------------------------------------
 // Main router
@@ -111,6 +134,27 @@ export async function route(
 
     // State-based text dispatch (Req 12.2)
     const state = session.state;
+
+    // -----------------------------------------------------------------------
+    // Reply keyboard button text → action dispatch (idle state only)
+    // Allows the persistent reply keyboard to trigger the same handlers as
+    // inline buttons without requiring the user to be in a specific state.
+    // -----------------------------------------------------------------------
+    if (!state || state === 'idle') {
+      if (user.role === 'employee') {
+        const action = EMPLOYEE_TEXT_ACTIONS[text];
+        if (action) {
+          await handleCallbackData(`action:${action}`, ctx);
+          return;
+        }
+      } else if (user.role === 'admin') {
+        const action = ADMIN_TEXT_ACTIONS[text];
+        if (action) {
+          await handleCallbackData(`action:${action}`, ctx);
+          return;
+        }
+      }
+    }
 
     if (state === 'awaiting_project_name') {
       // Admin-only state

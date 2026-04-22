@@ -7,7 +7,7 @@
 
 import { TelegramApiError } from '@/types';
 import { logger } from '@/lib/utils/logger';
-import type { InlineKeyboardMarkup } from './types';
+import type { InlineKeyboardMarkup, ReplyMarkup } from './types';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -101,7 +101,7 @@ interface TelegramFileResult {
 // ---------------------------------------------------------------------------
 
 export interface SendMessageOptions {
-  reply_markup?: InlineKeyboardMarkup;
+  reply_markup?: ReplyMarkup;
   parse_mode?: 'Markdown' | 'MarkdownV2' | 'HTML';
   disable_web_page_preview?: boolean;
 }
