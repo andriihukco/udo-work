@@ -22,7 +22,7 @@ export const EMPLOYEE_MAIN_MENU: InlineKeyboardMarkup = {
   ],
 };
 
-/** Main menu shown to admins. */
+/** Main menu shown to admins (static fallback without dashboard link). */
 export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
   inline_keyboard: [
     [{ text: '📁 Створити проєкт', callback_data: 'action:create_project' }],
@@ -31,9 +31,21 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
     [{ text: '📋 Задачі та логи', callback_data: 'action:tasks_logs' }],
     [{ text: '🔑 Управління користувачами', callback_data: 'action:manage_admins' }],
     [{ text: '🔗 Запросити до проєкту', callback_data: 'action:invite_to_project' }],
-    [{ text: '📊 Відкрити дашборд', url: 'https://udo-work.vercel.app/dashboard' }],
   ],
 };
+
+/**
+ * Builds the admin main menu with a personalised dashboard link
+ * that includes the admin's Telegram ID for auth.
+ */
+export function buildAdminMainMenu(telegramId: number): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      ...ADMIN_MAIN_MENU.inline_keyboard,
+      [{ text: '📊 Відкрити дашборд', url: `https://udo-work.vercel.app/dashboard?tid=${telegramId}` }],
+    ],
+  };
+}
 
 /** Admin management keyboard. */
 export const MANAGE_USERS_KEYBOARD: InlineKeyboardMarkup = {

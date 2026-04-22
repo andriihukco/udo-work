@@ -17,7 +17,7 @@ import * as adminHandlers from '@/lib/handlers/admin.handlers';
 import { sessionService } from '@/lib/services/session.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
-import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD } from '@/lib/telegram/keyboards';
+import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu } from '@/lib/telegram/keyboards';
 import type { TelegramUpdate, HandlerContext } from '@/types/index';
 
 // ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@ export async function route(
     // Unknown command or message in idle state — show main menu
     if (user.role === 'admin') {
       await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, {
-        reply_markup: ADMIN_MAIN_MENU,
+        reply_markup: buildAdminMainMenu(user.telegram_id),
       });
     } else {
       await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
@@ -256,11 +256,11 @@ async function handleCallbackData(
     if (action === 'back_to_main') {
       if (ctx.messageId) {
         const text = user.role === 'admin' ? MESSAGES.MAIN_MENU_ADMIN : MESSAGES.MAIN_MENU_EMPLOYEE;
-        const keyboard = user.role === 'admin' ? ADMIN_MAIN_MENU : EMPLOYEE_MAIN_MENU;
+        const keyboard = user.role === 'admin' ? buildAdminMainMenu(user.telegram_id) : EMPLOYEE_MAIN_MENU;
         await telegramClient.editMessageText(chatId, ctx.messageId, text, { reply_markup: keyboard });
       } else {
         if (user.role === 'admin') {
-          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, { reply_markup: ADMIN_MAIN_MENU });
+          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, { reply_markup: buildAdminMainMenu(user.telegram_id) });
         } else {
           await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, { reply_markup: EMPLOYEE_MAIN_MENU });
         }

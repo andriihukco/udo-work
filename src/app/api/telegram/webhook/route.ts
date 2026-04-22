@@ -18,7 +18,7 @@ import { userService } from '@/lib/services/user.service';
 import { membershipService } from '@/lib/services/membership.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
-import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD } from '@/lib/telegram/keyboards';
+import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu } from '@/lib/telegram/keyboards';
 import type { TelegramUpdate, HandlerContext, User } from '@/types/index';
 
 // ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
-    await showMainMenu(chatId, user.role);
+    await showMainMenu(chatId, user.role, telegramId);
     return;
   }
 
@@ -142,13 +142,15 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
 async function showMainMenu(
   chatId: number,
   role: 'admin' | 'employee',
+  telegramId?: number,
 ): Promise<void> {
   if (role === 'admin') {
+    const adminMenu = telegramId ? buildAdminMainMenu(telegramId) : ADMIN_MAIN_MENU;
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, {
       reply_markup: ADMIN_REPLY_KEYBOARD,
     });
     await telegramClient.sendMessage(chatId, '⚙️ Або оберіть дію з меню нижче:', {
-      reply_markup: ADMIN_MAIN_MENU,
+      reply_markup: adminMenu,
     });
   } else {
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
@@ -192,7 +194,7 @@ async function handleInviteRedeem(chatId: number, user: User, token: string): Pr
       `✅ Вас додано до проєкту *${project.name}* як *${roleLabel}*!`,
       { parse_mode: 'Markdown' },
     );
-    await showMainMenu(chatId, role);
+    await showMainMenu(chatId, role, user.telegram_id);
   } catch (err) {
     logger.error('handleInviteRedeem failed', err);
     await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);
