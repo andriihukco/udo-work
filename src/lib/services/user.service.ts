@@ -46,6 +46,9 @@ export interface UserService {
   /** Returns all admins. */
   getAllAdmins(): Promise<User[]>;
 
+  /** Returns all employees. */
+  getAllEmployees(): Promise<User[]>;
+
   /** Deletes a user by their internal UUID. */
   deleteUser(userId: string): Promise<void>;
 
@@ -263,6 +266,24 @@ export const userService: UserService = {
     if (error) {
       logger.error('UserService.getAllAdmins failed', error);
       throw new DatabaseError('Failed to fetch admins');
+    }
+
+    return (data ?? []).map((row) => mapRow(row as UserRow));
+  },
+
+  /**
+   * Returns all users with role = 'employee'.
+   */
+  async getAllEmployees(): Promise<User[]> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, telegram_id, role, first_name, username, created_at')
+      .eq('role', 'employee')
+      .order('first_name', { ascending: true });
+
+    if (error) {
+      logger.error('UserService.getAllEmployees failed', error);
+      throw new DatabaseError('Failed to fetch employees');
     }
 
     return (data ?? []).map((row) => mapRow(row as UserRow));

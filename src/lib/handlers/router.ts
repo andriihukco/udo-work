@@ -44,6 +44,7 @@ const ADMIN_ONLY_ACTIONS = new Set([
   'add_admin',
   'add_employee',
   'remove_admin',
+  'remove_employee',
   'back_to_main',
   'invite_to_project',
 ]);
@@ -330,6 +331,9 @@ async function handleCallbackData(
         case 'remove_admin':
           await adminHandlers.handleRemoveAdmin(ctx);
           break;
+        case 'remove_employee':
+          await adminHandlers.handleRemoveEmployee(ctx);
+          break;
         case 'invite_to_project':
           await adminHandlers.handleInviteToProject(ctx);
           break;
@@ -450,6 +454,19 @@ async function handleCallbackData(
     }
     const targetUserId = data.slice('remove_admin:'.length);
     await adminHandlers.handleRemoveAdminConfirm(ctx, targetUserId);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // remove_employee:{userId} prefix — admin only
+  // -------------------------------------------------------------------------
+  if (data.startsWith('remove_employee:')) {
+    if (user.role !== 'admin') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const targetUserId = data.slice('remove_employee:'.length);
+    await adminHandlers.handleRemoveEmployeeConfirm(ctx, targetUserId);
     return;
   }
 

@@ -31,6 +31,7 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
     [{ text: '📋 Задачі та логи', callback_data: 'action:tasks_logs' }],
     [{ text: '🔑 Управління користувачами', callback_data: 'action:manage_admins' }],
     [{ text: '🔗 Запросити до проєкту', callback_data: 'action:invite_to_project' }],
+    [{ text: '📊 Відкрити дашборд', url: 'https://udo-work.vercel.app/dashboard' }],
   ],
 };
 
@@ -40,6 +41,7 @@ export const MANAGE_USERS_KEYBOARD: InlineKeyboardMarkup = {
     [{ text: '➕ Додати адміна', callback_data: 'action:add_admin' }],
     [{ text: '➕ Додати співробітника', callback_data: 'action:add_employee' }],
     [{ text: '🗑 Видалити адміна', callback_data: 'action:remove_admin' }],
+    [{ text: '🗑 Видалити співробітника', callback_data: 'action:remove_employee' }],
     [{ text: '◀️ Назад', callback_data: 'action:back_to_main' }],
   ],
 };
@@ -172,6 +174,22 @@ export function buildAdminListKeyboard(admins: User[]): InlineKeyboardMarkup {
       ...admins.map((a) => {
         const label = a.first_name ?? (a.username ? `@${a.username}` : String(a.telegram_id));
         return [{ text: `🗑 ${label}`, callback_data: `remove_admin:${a.id}` }];
+      }),
+      [{ text: '◀️ Назад', callback_data: 'action:manage_admins' }],
+    ],
+  };
+}
+
+/**
+ * Builds a keyboard listing employees for removal.
+ * Each button carries `remove_employee:{id}` as callback_data.
+ */
+export function buildEmployeeRemoveKeyboard(employees: User[]): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      ...employees.map((e) => {
+        const label = e.first_name ?? (e.username ? `@${e.username}` : String(e.telegram_id));
+        return [{ text: `🗑 ${label}`, callback_data: `remove_employee:${e.id}` }];
       }),
       [{ text: '◀️ Назад', callback_data: 'action:manage_admins' }],
     ],

@@ -20,6 +20,7 @@ import {
   buildPaginationKeyboard,
   buildFilterKeyboard,
   buildAdminListKeyboard,
+  buildEmployeeRemoveKeyboard,
   buildInviteRoleKeyboard,
   ADMIN_MAIN_MENU,
   MANAGE_USERS_KEYBOARD,
@@ -621,6 +622,45 @@ export async function handleRemoveAdminConfirm(ctx: HandlerContext, targetUserId
     const target = admins.find((a) => a.id === targetUserId);
     if (!target) {
       await reply(chatId, messageId, '⚠️ Адміна не знайдено.', { reply_markup: MANAGE_USERS_KEYBOARD });
+      return;
+    }
+    await userService.deleteUser(targetUserId);
+    const name = userService.getDisplayName(target);
+    await reply(chatId, messageId,
+      `✅ *${esc(name)}* видалено з системи.`,
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Remove employee
+// ---------------------------------------------------------------------------
+
+export async function handleRemoveEmployee(ctx: HandlerContext): Promise<void> {
+  const { chatId, messageId } = ctx;
+  try {
+    const employees = await userService.getAllEmployees();
+    if (employees.length === 0) {
+      await reply(chatId, messageId, '⚠️ Немає співробітників для видалення.', { reply_markup: MANAGE_USERS_KEYBOARD });
+      return;
+    }
+    await reply(chatId, messageId, '🗑 Оберіть співробітника для видалення:', {
+      reply_markup: buildEmployeeRemoveKeyboard(employees),
+    });
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+export async function handleRemoveEmployeeConfirm(ctx: HandlerContext, targetUserId: string): Promise<void> {
+  const { chatId, messageId } = ctx;
+  try {
+    const employees = await userService.getAllEmployees();
+    const target = employees.find((e) => e.id === targetUserId);
+    if (!target) {
+      await reply(chatId, messageId, '⚠️ Співробітника не знайдено.', { reply_markup: MANAGE_USERS_KEYBOARD });
       return;
     }
     await userService.deleteUser(targetUserId);
