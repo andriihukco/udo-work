@@ -674,6 +674,56 @@ export async function handleRemoveEmployeeConfirm(ctx: HandlerContext, targetUse
 }
 
 // ---------------------------------------------------------------------------
+// Edit employee name
+// ---------------------------------------------------------------------------
+
+export async function handleEditEmployeeName(ctx: HandlerContext, targetUserId: string): Promise<void> {
+  const { user, chatId, messageId } = ctx;
+  try {
+    const employees = await userService.getAllEmployees();
+    const target = employees.find((e) => e.id === targetUserId);
+    if (!target) {
+      await reply(chatId, messageId, '⚠️ Співробітника не знайдено.', { reply_markup: ADMIN_MAIN_MENU });
+      return;
+    }
+    await sessionService.setState(user.id, 'awaiting_edit_employee_name', { pendingUserId: targetUserId });
+    const currentName = userService.getDisplayName(target);
+    await telegramClient.sendMessage(chatId,
+      `✏️ *Редагування імені*\n\nПоточне ім'я: *${esc(currentName)}*\n\nВведіть нове ім'я:\n_/cancel — скасувати_`,
+      { parse_mode: 'Markdown' });
+  } catch (err) {
+    await sendDbError(chatId, err);
+  }
+}
+
+export async function handleEditEmployeeNameInput(ctx: HandlerContext, text: string): Promise<void> {
+  const { user, session, chatId } = ctx;
+  const sessionCtx = session.context as { pendingUserId?: string } | null;
+
+  if (!sessionCtx?.pendingUserId) {
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: ADMIN_MAIN_MENU });
+    return;
+  }
+
+  try {
+    const name = text.trim();
+    if (!name) {
+      await telegramClient.sendMessage(chatId, '⚠️ Ім\'я не може бути порожнім.');
+      return;
+    }
+    await userService.updateFirstName(sessionCtx.pendingUserId, name);
+    await sessionService.resetSession(user.id);
+    await telegramClient.sendMessage(chatId,
+      `✅ Ім'я змінено на *${esc(name)}*`,
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
+  } catch (err) {
+    await sessionService.resetSession(user.id);
+    await sendDbError(chatId, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Invite links
 // ---------------------------------------------------------------------------
 

@@ -386,8 +386,10 @@ interface TeamTabProps {
 function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabProps) {
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
-  const [editUser, setEditUser] = useState<DashUser | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const employees = users.filter((u) => u.role === 'employee');
   const filtered = employees.filter((u) => {
@@ -403,21 +405,37 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
     return stats?.employees.find((e) => e.id === id);
   }
 
+  function startEdit(u: DashUser) {
+    setEditingId(u.id);
+    setEditName(u.first_name ?? '');
+    setConfirmDelete(null);
+  }
+
+  async function saveEdit(id: string) {
+    setSaving(true);
+    try {
+      await onEdit(id, editName);
+      setEditingId(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center gap-2">
         <input
-          type="text"
+          type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Пошук..."
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          className="flex-1 border border-gray-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
         />
         <button
           onClick={() => setShowAdd(true)}
-          className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+          className="flex-shrink-0 bg-blue-600 active:bg-blue-700 text-white font-medium px-4 py-3 rounded-xl transition-colors"
         >
-          ➕ Додати
+          ➕
         </button>
       </div>
 
@@ -427,55 +445,82 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
         <div className="space-y-2">
           {filtered.map((u) => {
             const empStat = getEmpStat(u.id);
+            const isEditing = editingId === u.id;
             const isConfirming = confirmDelete === u.id;
             return (
-              <div key={u.id} className="bg-white rounded-xl px-4 py-3 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-sm flex-shrink-0">
-                    {(u.first_name ?? u.username ?? '?').charAt(0).toUpperCase()}
+              <div key={u.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+                {isEditing ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(u.id); if (e.key === 'Escape') setEditingId(null); }}
+                      autoFocus
+                      className="flex-1 border border-blue-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      placeholder="Ім'я"
+                    />
+                    <button
+                      onClick={() => saveEdit(u.id)}
+                      disabled={saving}
+                      className="bg-blue-600 active:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium disabled:opacity-50"
+                    >
+                      ✓
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="bg-gray-100 active:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{displayName(u)}</p>
-                    <div className="flex items-center gap-2 text-xs text-gray-400">
-                      {u.username && <span>@{u.username}</span>}
-                      {empStat && empStat.weeklyMinutes > 0 && (
-                        <span className="text-blue-500 font-medium">{fmtTime(empStat.weeklyMinutes)}</span>
-                      )}
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold flex-shrink-0">
+                      {(u.first_name ?? u.username ?? '?').charAt(0).toUpperCase()}
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-800 truncate">{displayName(u)}</p>
+                      <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+                        {u.username && <span>@{u.username}</span>}
+                        {empStat && empStat.weeklyMinutes > 0 && (
+                          <span className="text-blue-500 font-medium">{fmtTime(empStat.weeklyMinutes)}</span>
+                        )}
+                        {empStat?.activeTasks ? <span className="text-green-500">● активна</span> : null}
+                      </div>
+                    </div>
+                    {!isConfirming && (
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => startEdit(u)}
+                          className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-blue-500 rounded-xl active:bg-blue-50"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => { setConfirmDelete(u.id); setEditingId(null); }}
+                          className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-red-500 rounded-xl active:bg-red-50"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  {!isConfirming && (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setEditUser(u)}
-                        className="p-1.5 text-gray-400 hover:text-blue-500 rounded-lg hover:bg-blue-50 transition-colors"
-                        title="Редагувати"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(u.id)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Видалити"
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  )}
-                </div>
+                )}
                 {isConfirming && (
                   <div className="mt-2 flex items-center gap-2 justify-end">
                     <span className="text-sm text-red-600">Видалити?</span>
                     <button
                       onClick={async () => { await onDelete(u.id); setConfirmDelete(null); }}
-                      className="text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg transition-colors"
+                      className="bg-red-500 active:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium"
                     >
                       Так
                     </button>
                     <button
                       onClick={() => setConfirmDelete(null)}
-                      className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded-lg transition-colors"
+                      className="bg-gray-100 active:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm"
                     >
-                      Скасувати
+                      Ні
                     </button>
                   </div>
                 )}
@@ -490,13 +535,6 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
           defaultRole="employee"
           onClose={() => setShowAdd(false)}
           onSave={onAdd}
-        />
-      )}
-      {editUser && (
-        <UserModal
-          editUser={editUser}
-          onClose={() => setEditUser(null)}
-          onSave={async (data) => { await onEdit(editUser.id, data.firstName); }}
         />
       )}
     </div>

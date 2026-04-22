@@ -123,7 +123,7 @@ export async function route(
     if (text === '/start') {
       if (user.role === 'admin') {
         await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, {
-          reply_markup: ADMIN_MAIN_MENU,
+          reply_markup: buildAdminMainMenu(user.telegram_id),
         });
       } else {
         await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
@@ -196,6 +196,15 @@ export async function route(
         return;
       }
       await adminHandlers.handleNewUserNameInput(ctx, text);
+      return;
+    }
+
+    if (state === 'awaiting_edit_employee_name') {
+      if (user.role !== 'admin') {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      await adminHandlers.handleEditEmployeeNameInput(ctx, text);
       return;
     }
 
@@ -454,6 +463,19 @@ async function handleCallbackData(
     }
     const targetUserId = data.slice('remove_admin:'.length);
     await adminHandlers.handleRemoveAdminConfirm(ctx, targetUserId);
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // edit_employee:{userId} prefix — admin only
+  // -------------------------------------------------------------------------
+  if (data.startsWith('edit_employee:')) {
+    if (user.role !== 'admin') {
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+      return;
+    }
+    const targetUserId = data.slice('edit_employee:'.length);
+    await adminHandlers.handleEditEmployeeName(ctx, targetUserId);
     return;
   }
 

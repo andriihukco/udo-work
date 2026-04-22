@@ -116,7 +116,10 @@ export function buildEmployeeListKeyboard(employees: User[], backAction = 'actio
       ...employees.map((e) => {
         const name = e.first_name ?? (e.username ? `@${e.username}` : `ID ${e.telegram_id}`);
         const suffix = e.username && e.first_name ? ` (@${e.username})` : '';
-        return [{ text: `${name}${suffix}`, callback_data: `employee:${e.id}` }];
+        return [
+          { text: `${name}${suffix}`, callback_data: `employee:${e.id}` },
+          { text: '✏️', callback_data: `edit_employee:${e.id}` },
+        ];
       }),
       [{ text: '◀️ Назад', callback_data: backAction }],
     ],

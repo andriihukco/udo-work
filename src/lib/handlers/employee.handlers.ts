@@ -150,7 +150,7 @@ export async function handleTaskNameInput(ctx: HandlerContext, text: string): Pr
     );
     const project = await projectService.findById(sessionCtx.selectedProjectId);
     if (project) {
-      notificationService
+      await notificationService
         .notifyTaskStarted(user, task, project, new Date(timeLog.started_at))
         .catch((err) => logger.error('notifyTaskStarted failed', err));
     }
@@ -308,7 +308,7 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
     const project = await projectService.findById(task.project_id);
     if (project) {
       const attachments = deliverableCtx?.taskId ? await storageService.getAttachments(deliverableCtx.taskId) : [];
-      notificationService
+      await notificationService
         .notifyTaskCompleted(user, task, project, totalTime, attachments)
         .catch((err) => logger.error('notifyTaskCompleted failed', err));
     }

@@ -139,9 +139,9 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Sends the role-appropriate main menu keyboard to the given chat.
- * Sends the reply keyboard first (persists in the input area), then the
- * inline menu message so both are visible.
+ * Sends the role-appropriate main menu to the given chat.
+ * Single message with inline keyboard — no duplicate greeting.
+ * Reply keyboard is sent separately only on first /start (handled in processUpdate).
  */
 async function showMainMenu(
   chatId: number,
@@ -151,16 +151,10 @@ async function showMainMenu(
   if (role === 'admin') {
     const adminMenu = telegramId ? buildAdminMainMenu(telegramId) : ADMIN_MAIN_MENU;
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, {
-      reply_markup: ADMIN_REPLY_KEYBOARD,
-    });
-    await telegramClient.sendMessage(chatId, '⚙️ Або оберіть дію з меню нижче:', {
       reply_markup: adminMenu,
     });
   } else {
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
-      reply_markup: EMPLOYEE_REPLY_KEYBOARD,
-    });
-    await telegramClient.sendMessage(chatId, '📋 Або оберіть дію з меню нижче:', {
       reply_markup: EMPLOYEE_MAIN_MENU,
     });
   }
