@@ -907,18 +907,22 @@ export async function handleGenerateInviteLink(ctx: HandlerContext, projectId: s
     const link = await membershipService.createInviteLink(projectId, role, user.id);
     const roleLabel = role === 'admin' ? 'адміна' : 'співробітника';
 
-    // Send formatted info first, then the raw link as a separate plain message
-    // (Markdown can't safely parse URLs with special chars like _ ? =)
     await reply(chatId, messageId,
       `🔗 *Посилання-запрошення*\n\n` +
       `📁 Проєкт: *${esc(project.name)}*\n` +
       `👤 Роль: *${roleLabel}*\n` +
       `⏳ Дійсне: 7 днів\n\n` +
-      `_Надішліть посилання нижче потрібній людині. Після переходу вони автоматично отримають доступ._`,
-      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
+      `_Натисніть кнопку нижче, щоб скопіювати або поділитись посиланням._`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔗 Запросити', url: link }],
+            [{ text: '◀️ Головне меню', callback_data: 'action:back_to_main' }],
+          ],
+        },
+      },
     );
-    // Send the link as plain text so Telegram doesn't try to parse it
-    await telegramClient.sendMessage(chatId, link);
   } catch (err) {
     await sendDbError(chatId, err);
   }
