@@ -409,9 +409,10 @@ export const taskService: TaskService = {
   /**
    * Returns TaskActivity[] for a user within a date range, joining project name
    * and computing timeSpent for each task.
+   * Only counts time logged within the [from, to] range.
    */
   async getTasksForUser(userId: string, from: Date, to: Date): Promise<TaskActivity[]> {
-    // Query tasks joined with projects, filtered by time_logs.started_at within range
+    // Query tasks that have at least one time_log started within the range
     const { data, error } = await supabase
       .from('tasks')
       .select(
@@ -445,7 +446,16 @@ export const taskService: TaskService = {
     // Build TaskActivity for each unique task
     const activities: TaskActivity[] = await Promise.all(
       uniqueTasks.map(async (row) => {
-        const timeLogs = await taskService.getTimeLogs(row.id);
+        // Fetch only time logs within the requested date range for consistent counting
+        const { data: logsData } = await supabase
+          .from('time_logs')
+          .select('id, task_id, started_at, paused_at, ended_at')
+          .eq('task_id', row.id)
+          .gte('started_at', from.toISOString())
+          .lte('started_at', to.toISOString())
+          .order('started_at', { ascending: true });
+
+        const timeLogs = (logsData ?? []).map(mapTimeLogRow);
         const timeSpent = calcTotalTime(timeLogs);
 
         // Extract project name from the join
