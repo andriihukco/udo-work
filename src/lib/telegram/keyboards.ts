@@ -33,7 +33,7 @@ export const EMPLOYEE_MAIN_MENU: InlineKeyboardMarkup = {
  */
 export function buildContextualEmployeeMenu(
   taskStatus: 'in_progress' | 'paused' | null,
-  telegramId?: number,
+  telegramId?: number | null,
 ): InlineKeyboardMarkup {
   const rows: { text: string; callback_data: string }[][] = [];
 
@@ -67,8 +67,7 @@ export function buildContextualEmployeeMenu(
 /**
  * Builds the employee main menu with a personalised app link.
  */
-export function buildEmployeeMainMenu(telegramId: number): InlineKeyboardMarkup {
-  // Default to no-task state for /start command (we don't know task state here)
+export function buildEmployeeMainMenu(telegramId: number | null): InlineKeyboardMarkup {
   return buildContextualEmployeeMenu(null, telegramId);
 }
 
@@ -92,11 +91,11 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
  * Builds the admin main menu with a personalised app link.
  * Opens the unified /app route which redirects admins to the dashboard.
  */
-export function buildAdminMainMenu(telegramId: number): InlineKeyboardMarkup {
+export function buildAdminMainMenu(telegramId: number | null): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       ...ADMIN_MAIN_MENU.inline_keyboard,
-      [{ text: '📊 Відкрити дашборд', web_app: { url: `https://udo-work.vercel.app/app?tid=${telegramId}` } }],
+      ...(telegramId ? [[{ text: '📊 Відкрити дашборд', web_app: { url: `https://udo-work.vercel.app/app?tid=${telegramId}` } }]] : []),
     ],
   };
 }

@@ -206,7 +206,7 @@ async function handleInviteRedeem(chatId: number, user: User, token: string): Pr
       `✅ Вас додано до проєкту *${project.name}* як *${roleLabel}*!`,
       { parse_mode: 'Markdown' },
     );
-    await showMainMenu(chatId, role, user.telegram_id);
+    await showMainMenu(chatId, role, user.telegram_id ?? undefined);
   } catch (err) {
     logger.error('handleInviteRedeem failed', err);
     await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);

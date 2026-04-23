@@ -56,7 +56,7 @@ export interface NotificationService {
 function getDisplayName(user: User): string {
   if (user.first_name) return user.first_name;
   if (user.username) return `@${user.username}`;
-  return user.telegram_id.toString();
+  return user.telegram_id?.toString() ?? 'Unknown';
 }
 
 /**
@@ -120,6 +120,7 @@ async function sendToAdmin(
   text: string,
   options: Record<string, unknown> = { parse_mode: 'Markdown' },
 ): Promise<void> {
+  if (!admin.telegram_id) return; // placeholder user — no ID yet, skip
   try {
     await telegramClient.sendNotification(admin.telegram_id, text, options);
   } catch (err) {
