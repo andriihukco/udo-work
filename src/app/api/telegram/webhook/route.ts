@@ -102,7 +102,31 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
     }
   }
 
+  // Special case: unregistered user arriving via an invite deep link.
+  // Auto-register them as a placeholder employee, then let the invite flow
+  // assign the correct role and project membership.
   if (!user) {
+    const text = update.message?.text ?? '';
+    if (text.startsWith('/start invite_')) {
+      const token = text.slice('/start invite_'.length).trim();
+      const tgUser = update.message?.from;
+      // Create a minimal user record so the invite can be redeemed
+      user = await userService.createUser(
+        telegramId,
+        'employee',
+        tgUser?.first_name,
+        tgUser?.username,
+      ).catch(() => null);
+
+      if (user) {
+        // Immediately redeem the invite — this will set the correct role/project
+        await handleInviteRedeem(chatId, user, token);
+      } else {
+        await telegramClient.sendMessage(chatId, MESSAGES.NOT_REGISTERED);
+      }
+      return;
+    }
+
     await telegramClient.sendMessage(chatId, MESSAGES.NOT_REGISTERED);
     return;
   }
