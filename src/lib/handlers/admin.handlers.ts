@@ -575,9 +575,9 @@ async function handleAddUserInput(ctx: HandlerContext, message: TelegramMessage,
           { parse_mode: 'Markdown', reply_markup: backKeyboard });
         return;
       }
-      // Username not in DB — create with telegram_id = 0 as placeholder
+      // Username not in DB — create with null telegram_id as placeholder
       // When they /start the bot, their real ID will be matched by username
-      const newUser = await userService.createUser(0, role, undefined, resolved.username);
+      const newUser = await userService.createUser(null, role, undefined, resolved.username);
       await sessionService.resetSession(user.id);
       await telegramClient.sendMessage(chatId,
         `✅ *@${esc(resolved.username)}* додано як ${role === 'admin' ? 'адміна' : 'співробітника'}.\n\n` +

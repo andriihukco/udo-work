@@ -94,7 +94,7 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
     const tgUser = update.message?.from ?? update.callback_query?.from;
     if (tgUser?.username) {
       const byUsername = await userService.findByUsername(tgUser.username);
-      if (byUsername && byUsername.telegram_id === 0) {
+      if (byUsername && !byUsername.telegram_id) {
         // Claim the placeholder — update with real telegram_id and name
         await userService.claimPlaceholder(byUsername.id, telegramId, tgUser.first_name);
         user = await userService.findByTelegramId(telegramId);

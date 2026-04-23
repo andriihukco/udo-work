@@ -31,7 +31,7 @@ export interface UserService {
    * Throws `ValidationError` if `role` is not a valid `UserRole`.
    */
   createUser(
-    telegramId: number,
+    telegramId: number | null,
     role: string,
     firstName?: string,
     username?: string
@@ -100,6 +100,7 @@ export const userService: UserService = {
    * Returns `null` when no row is found (PGRST116 = "no rows returned").
    */
   async findByTelegramId(telegramId: number): Promise<User | null> {
+    if (!telegramId) return null;
     const { data, error } = await supabase
       .from('users')
       .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
@@ -135,7 +136,7 @@ export const userService: UserService = {
    * Throws `ValidationError` for invalid roles.
    */
   async createUser(
-    telegramId: number,
+    telegramId: number | null,
     role: string,
     firstName?: string,
     username?: string
@@ -369,6 +370,7 @@ export const userService: UserService = {
   getDisplayName(user: User): string {
     if (user.first_name) return user.first_name;
     if (user.username) return `@${user.username}`;
-    return `ID ${user.telegram_id}`;
+    if (user.telegram_id) return `ID ${user.telegram_id}`;
+    return 'Невідомий';
   },
 };

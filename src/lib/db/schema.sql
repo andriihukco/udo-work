@@ -4,15 +4,16 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Users table
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  telegram_id BIGINT UNIQUE NOT NULL,
+  telegram_id BIGINT,  -- nullable for placeholder users added by @username
   role TEXT NOT NULL CHECK (role IN ('admin', 'employee')),
   first_name TEXT,
   username TEXT,
   hourly_rate NUMERIC(10,2),  -- optional UAH rate per hour
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT unique_telegram_id_when_not_null UNIQUE NULLS NOT DISTINCT (telegram_id)
 );
 
-CREATE INDEX idx_users_telegram_id ON users(telegram_id);
+CREATE INDEX idx_users_telegram_id ON users(telegram_id) WHERE telegram_id IS NOT NULL;
 CREATE INDEX idx_users_role ON users(role);
 
 -- Projects table

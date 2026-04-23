@@ -31,7 +31,7 @@ export type SessionState =
 
 export interface User {
   id: string;
-  telegram_id: number;
+  telegram_id: number | null;
   role: UserRole;
   first_name: string | null;
   username: string | null;
