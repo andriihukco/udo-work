@@ -35,7 +35,7 @@ interface TodayTask {
 }
 
 interface TimerState {
-  user: { id: string; name: string; hourlyRate: number | null } | null;
+  user: { id: string; name: string; hourlyRate?: number | null; role: "employee" | "admin" } | null;
   activeTask: ActiveTask | null;
   timeLogs: TimeLog[];
   projects: Project[];
@@ -59,7 +59,6 @@ function calcElapsedSeconds(timeLogs: TimeLog[]): number {
   for (const log of timeLogs) {
     const end = log.paused_at ?? log.ended_at;
     if (!end) {
-      // open interval — count up to now
       total += Math.floor((Date.now() - new Date(log.started_at).getTime()) / 1000);
     } else {
       const diff = Math.floor(
@@ -93,6 +92,33 @@ function formatTotalTime(totalMinutes: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Admin redirect view
+// ---------------------------------------------------------------------------
+
+function AdminRedirectView({ name, telegramId }: { name: string; telegramId: number }) {
+  return (
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center px-6 gap-6">
+      <div className="text-5xl">🛡️</div>
+      <div className="text-center">
+        <div className="text-lg font-bold mb-1">{name}</div>
+        <div className="text-sm text-slate-400">Адміністратор</div>
+      </div>
+      <div className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-3">
+        <div className="text-sm text-slate-300 text-center mb-1">
+          Для адміністраторів доступний повний дашборд
+        </div>
+        <a
+          href={`/dashboard?tid=${telegramId}`}
+          className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-center transition-colors block"
+        >
+          📊 Відкрити дашборд
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -120,7 +146,7 @@ export default function AppPage() {
   // Pomodoro mode
   const [pomodoroMode, setPomodoroMode] = useState(false);
   const [pomodoroPhase, setPomodoroPhase] = useState<"work" | "break" | "long_break">("work");
-  const [pomodoroCount, setPomodoroCount] = useState(0); // completed pomodoros
+  const [pomodoroCount, setPomodoroCount] = useState(0);
   const [pomodoroSecondsLeft, setPomodoroSecondsLeft] = useState(POMODORO_WORK_MIN * 60);
   const [pomodoroRunning, setPomodoroRunning] = useState(false);
   const pomodoroRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -129,12 +155,11 @@ export default function AppPage() {
   const [notifGranted, setNotifGranted] = useState(false);
 
   // ---------------------------------------------------------------------------
-  // Init: read telegramId from URL or Telegram WebApp
+  // Init
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let tid: number | null = null;
 
-    // Try Telegram WebApp SDK first
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
       tg.ready();
@@ -145,7 +170,6 @@ export default function AppPage() {
       }
     }
 
-    // Fallback: URL param ?tid=xxx
     if (!tid) {
       const params = new URLSearchParams(window.location.search);
       const param = params.get("tid");
@@ -155,7 +179,6 @@ export default function AppPage() {
     if (tid) setTelegramId(tid);
     else setError("Не вдалося визначити користувача. Відкрийте через Telegram.");
 
-    // Request notification permission
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().then((p) => setNotifGranted(p === "granted"));
     } else if ("Notification" in window && Notification.permission === "granted") {
@@ -164,7 +187,7 @@ export default function AppPage() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Fetch state from API
+  // Fetch state
   // ---------------------------------------------------------------------------
   const fetchState = useCallback(async (tid: number) => {
     try {
@@ -179,7 +202,6 @@ export default function AppPage() {
       setState(data);
       setError(null);
 
-      // Sync elapsed seconds
       if (data.activeTask) {
         setElapsedSeconds(calcElapsedSeconds(data.timeLogs));
       } else {
@@ -210,14 +232,8 @@ export default function AppPage() {
   // ---------------------------------------------------------------------------
   // Pomodoro timer
   // ---------------------------------------------------------------------------
-  const startPomodoro = useCallback(() => {
-    setPomodoroRunning(true);
-  }, []);
-
-  const pausePomodoro = useCallback(() => {
-    setPomodoroRunning(false);
-  }, []);
-
+  const startPomodoro = useCallback(() => setPomodoroRunning(true), []);
+  const pausePomodoro = useCallback(() => setPomodoroRunning(false), []);
   const resetPomodoro = useCallback(() => {
     setPomodoroRunning(false);
     setPomodoroPhase("work");
@@ -250,7 +266,6 @@ export default function AppPage() {
     pomodoroRef.current = setInterval(() => {
       setPomodoroSecondsLeft((s) => {
         if (s <= 1) {
-          // Phase complete
           if (notifGranted) {
             const msg =
               pomodoroPhase === "work"
@@ -309,7 +324,6 @@ export default function AppPage() {
     setShowNewTask(false);
     setTaskName("");
     setSelectedProject("");
-    // Auto-start pomodoro
     if (pomodoroMode) {
       setPomodoroPhase("work");
       setPomodoroSecondsLeft(POMODORO_WORK_MIN * 60);
@@ -338,10 +352,11 @@ export default function AppPage() {
   const task = state.activeTask;
   const isRunning = task?.status === "in_progress";
   const isPaused = task?.status === "paused";
+  const hasTask = !!task;
   const projectName =
     state.projects.find((p) => p.id === task?.projectId)?.name ?? "";
 
-  // Pomodoro ring progress
+  // Pomodoro ring
   const pomodoroTotal =
     pomodoroPhase === "work"
       ? POMODORO_WORK_MIN * 60
@@ -354,22 +369,13 @@ export default function AppPage() {
   const strokeDashoffset = CIRCUMFERENCE * (1 - pomodoroProgress);
 
   const phaseLabel =
-    pomodoroPhase === "work"
-      ? "Робота"
-      : pomodoroPhase === "break"
-      ? "Коротка перерва"
-      : "Довга перерва";
-  const phaseColor =
-    pomodoroPhase === "work" ? "#ef4444" : "#22c55e";
+    pomodoroPhase === "work" ? "Робота" : pomodoroPhase === "break" ? "Коротка перерва" : "Довга перерва";
+  const phaseColor = pomodoroPhase === "work" ? "#ef4444" : "#22c55e";
 
-  // Today total
-  const todayTotalMin = state.todayTasks.reduce(
-    (s, t) => s + t.timeSpent.totalMinutes,
-    0
-  );
+  const todayTotalMin = state.todayTasks.reduce((s, t) => s + t.timeSpent.totalMinutes, 0);
 
   // ---------------------------------------------------------------------------
-  // Render
+  // Loading / error screens
   // ---------------------------------------------------------------------------
 
   if (loading) {
@@ -391,6 +397,16 @@ export default function AppPage() {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Admin view — redirect to dashboard
+  // ---------------------------------------------------------------------------
+  if (state.user?.role === "admin") {
+    return <AdminRedirectView name={state.user.name} telegramId={telegramId!} />;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Employee view
+  // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
       {/* Header */}
@@ -404,9 +420,7 @@ export default function AppPage() {
         <button
           onClick={() => setPomodoroMode((v) => !v)}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-            pomodoroMode
-              ? "bg-red-500 text-white"
-              : "bg-slate-700 text-slate-300"
+            pomodoroMode ? "bg-red-500 text-white" : "bg-slate-700 text-slate-300"
           }`}
           aria-label="Перемкнути режим Pomodoro"
         >
@@ -421,7 +435,6 @@ export default function AppPage() {
         </div>
       )}
 
-      {/* Main content */}
       <main className="flex-1 flex flex-col items-center px-4 pt-4 pb-6 gap-6">
 
         {/* ------------------------------------------------------------------ */}
@@ -429,17 +442,9 @@ export default function AppPage() {
         {/* ------------------------------------------------------------------ */}
         {pomodoroMode && (
           <section className="w-full flex flex-col items-center gap-4">
-            {/* Ring timer */}
             <div className="relative flex items-center justify-center" style={{ width: 220, height: 220 }}>
               <svg width="220" height="220" className="absolute top-0 left-0 -rotate-90">
-                {/* Track */}
-                <circle
-                  cx="110" cy="110" r={RADIUS}
-                  fill="none"
-                  stroke="#1e293b"
-                  strokeWidth="12"
-                />
-                {/* Progress */}
+                <circle cx="110" cy="110" r={RADIUS} fill="none" stroke="#1e293b" strokeWidth="12" />
                 <circle
                   cx="110" cy="110" r={RADIUS}
                   fill="none"
@@ -456,13 +461,10 @@ export default function AppPage() {
                   {formatMinSec(pomodoroSecondsLeft)}
                 </div>
                 <div className="text-xs text-slate-400 mt-1">{phaseLabel}</div>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  🍅 ×{pomodoroCount}
-                </div>
+                <div className="text-xs text-slate-500 mt-0.5">🍅 ×{pomodoroCount}</div>
               </div>
             </div>
 
-            {/* Pomodoro controls */}
             <div className="flex gap-3">
               {!pomodoroRunning ? (
                 <button
@@ -470,7 +472,7 @@ export default function AppPage() {
                   className="px-6 py-2.5 bg-red-500 hover:bg-red-600 rounded-full text-sm font-semibold transition-colors"
                   aria-label="Запустити Pomodoro"
                 >
-                  ▶ Старт
+                  ▶️ Старт
                 </button>
               ) : (
                 <button
@@ -478,7 +480,7 @@ export default function AppPage() {
                   className="px-6 py-2.5 bg-slate-600 hover:bg-slate-500 rounded-full text-sm font-semibold transition-colors"
                   aria-label="Пауза Pomodoro"
                 >
-                  ⏸ Пауза
+                  ⏸️ Пауза
                 </button>
               )}
               <button
@@ -486,18 +488,17 @@ export default function AppPage() {
                 className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-full text-sm font-semibold transition-colors"
                 aria-label="Пропустити фазу"
               >
-                ⏭ Пропустити
+                ⏭️ Пропустити
               </button>
               <button
                 onClick={resetPomodoro}
                 className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-full text-sm font-semibold transition-colors"
                 aria-label="Скинути Pomodoro"
               >
-                ↺
+                🔄
               </button>
             </div>
 
-            {/* Pomodoro legend */}
             <div className="flex gap-4 text-xs text-slate-400">
               <span>🔴 {POMODORO_WORK_MIN}хв робота</span>
               <span>🟢 {POMODORO_BREAK_MIN}хв перерва</span>
@@ -509,7 +510,7 @@ export default function AppPage() {
         {/* ------------------------------------------------------------------ */}
         {/* ACTIVE TASK CARD */}
         {/* ------------------------------------------------------------------ */}
-        {task ? (
+        {hasTask ? (
           <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4">
             {/* Task info */}
             <div className="flex items-start justify-between gap-2">
@@ -524,7 +525,7 @@ export default function AppPage() {
                     : "bg-yellow-900/60 text-yellow-400"
                 }`}
               >
-                {isRunning ? "▶ Активна" : "⏸ Пауза"}
+                {isRunning ? "🟢 Активна" : "⏸️ Пауза"}
               </span>
             </div>
 
@@ -536,16 +537,16 @@ export default function AppPage() {
               <div className="text-xs text-slate-400 mt-1">витрачено часу</div>
             </div>
 
-            {/* Action buttons */}
+            {/* Context-aware action buttons */}
             <div className="flex gap-3">
               {isRunning && (
                 <button
                   onClick={handlePause}
                   disabled={actionLoading}
-                  className="flex-1 py-3 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-900 transition-colors"
+                  className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-900 transition-colors"
                   aria-label="Поставити на паузу"
                 >
-                  ⏸ Пауза
+                  ⏸️ Пауза
                 </button>
               )}
               {isPaused && (
@@ -555,7 +556,7 @@ export default function AppPage() {
                   className="flex-1 py-3 bg-green-500 hover:bg-green-400 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-900 transition-colors"
                   aria-label="Відновити задачу"
                 >
-                  ▶ Відновити
+                  ▶️ Відновити
                 </button>
               )}
               <button
@@ -564,36 +565,37 @@ export default function AppPage() {
                 className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm font-semibold transition-colors"
                 aria-label="Завершити задачу"
               >
-                ✓ Завершити
+                ✅ Завершити
               </button>
             </div>
           </section>
         ) : (
           /* No active task */
           <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col items-center gap-3">
-            <div className="text-4xl">⏱</div>
+            <div className="text-4xl">⏱️</div>
             <div className="text-base font-semibold">Немає активної задачі</div>
             <div className="text-sm text-slate-400 text-center">
               Розпочніть нову задачу, щоб почати відстеження часу
             </div>
-            <button
-              onClick={() => setShowNewTask(true)}
-              className="mt-1 w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold transition-colors"
-              aria-label="Почати нову задачу"
-            >
-              ▶ Почати задачу
-            </button>
+            {!showNewTask && (
+              <button
+                onClick={() => setShowNewTask(true)}
+                className="mt-1 w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold transition-colors"
+                aria-label="Почати нову задачу"
+              >
+                🚀 Почати задачу
+              </button>
+            )}
           </section>
         )}
 
         {/* ------------------------------------------------------------------ */}
-        {/* NEW TASK FORM */}
+        {/* NEW TASK FORM — only shown when no active task */}
         {/* ------------------------------------------------------------------ */}
-        {showNewTask && !task && (
+        {showNewTask && !hasTask && (
           <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4">
-            <div className="text-sm font-semibold">Нова задача</div>
+            <div className="text-sm font-semibold">📝 Нова задача</div>
 
-            {/* Project selector */}
             <div>
               <label className="text-xs text-slate-400 mb-1 block" htmlFor="project-select">
                 Проєкт
@@ -614,7 +616,6 @@ export default function AppPage() {
               </select>
             </div>
 
-            {/* Task name */}
             <div>
               <label className="text-xs text-slate-400 mb-1 block" htmlFor="task-name">
                 Назва задачі
@@ -639,7 +640,7 @@ export default function AppPage() {
                 className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold transition-colors"
                 aria-label="Скасувати"
               >
-                Скасувати
+                ❌ Скасувати
               </button>
               <button
                 onClick={handleStart}
@@ -647,21 +648,10 @@ export default function AppPage() {
                 className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:opacity-40 rounded-xl text-sm font-semibold transition-colors"
                 aria-label="Розпочати задачу"
               >
-                ▶ Розпочати
+                🚀 Розпочати
               </button>
             </div>
           </section>
-        )}
-
-        {/* Start button when task exists but form hidden */}
-        {!task && !showNewTask && (
-          <button
-            onClick={() => setShowNewTask(true)}
-            className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold transition-colors"
-            aria-label="Нова задача"
-          >
-            + Нова задача
-          </button>
         )}
 
         {/* ------------------------------------------------------------------ */}
@@ -670,7 +660,7 @@ export default function AppPage() {
         {state.todayTasks.length > 0 && (
           <section className="w-full">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-semibold text-slate-300">Сьогодні</div>
+              <div className="text-sm font-semibold text-slate-300">📅 Сьогодні</div>
               <div className="text-xs text-slate-400">
                 Всього: {formatTotalTime(todayTotalMin)}
               </div>
@@ -699,10 +689,10 @@ export default function AppPage() {
                       }`}
                     >
                       {t.status === "completed"
-                        ? "✓ Завершено"
+                        ? "✅ Завершено"
                         : t.status === "in_progress"
-                        ? "▶ Активна"
-                        : "⏸ Пауза"}
+                        ? "🟢 Активна"
+                        : "⏸️ Пауза"}
                     </div>
                   </div>
                 </div>
@@ -714,4 +704,3 @@ export default function AppPage() {
     </div>
   );
 }
-

@@ -24,7 +24,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function resolveEmployee(telegramId: number) {
+async function resolveUser(telegramId: number) {
   const { data, error } = await supabase
     .from('users')
     .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
@@ -33,7 +33,6 @@ async function resolveEmployee(telegramId: number) {
 
   if (error) throw new Error('DB error');
   if (!data) return null;
-  if (data.role !== 'employee') return null;
   return data;
 }
 
@@ -50,12 +49,27 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const user = await resolveEmployee(telegramId);
+    const user = await resolveUser(telegramId);
     if (!user) {
-      return Response.json({ error: 'Not found or not an employee' }, { status: 403 });
+      return Response.json({ error: 'User not found' }, { status: 403 });
     }
 
-    // Active task
+    // Return role info for routing
+    if (user.role === 'admin') {
+      return Response.json({
+        user: {
+          id: user.id,
+          name: user.first_name ?? (user.username ? `@${user.username}` : `ID ${user.telegram_id}`),
+          role: 'admin',
+        },
+        activeTask: null,
+        timeLogs: [],
+        projects: [],
+        todayTasks: [],
+      });
+    }
+
+    // Employee flow
     const activeTask = await taskService.getActiveTask(user.id);
 
     // Time logs for active task
@@ -80,6 +94,7 @@ export async function GET(request: Request): Promise<Response> {
         id: user.id,
         name: user.first_name ?? (user.username ? `@${user.username}` : `ID ${user.telegram_id}`),
         hourlyRate: user.hourly_rate,
+        role: 'employee',
       },
       activeTask: activeTask
         ? {
@@ -113,9 +128,12 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: 'telegramId and action required' }, { status: 400 });
     }
 
-    const user = await resolveEmployee(Number(telegramId));
+    const user = await resolveUser(Number(telegramId));
     if (!user) {
-      return Response.json({ error: 'Not found or not an employee' }, { status: 403 });
+      return Response.json({ error: 'User not found' }, { status: 403 });
+    }
+    if (user.role !== 'employee') {
+      return Response.json({ error: 'Only employees can perform timer actions' }, { status: 403 });
     }
 
     switch (action) {

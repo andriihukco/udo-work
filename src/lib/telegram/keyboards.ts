@@ -33,7 +33,7 @@ export const EMPLOYEE_MAIN_MENU: InlineKeyboardMarkup = {
 };
 
 /**
- * Builds the employee main menu with a personalised timer app link.
+ * Builds the employee main menu with a personalised app link.
  */
 export function buildEmployeeMainMenu(telegramId: number): InlineKeyboardMarkup {
   return {
@@ -61,13 +61,14 @@ export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
 };
 
 /**
- * Builds the admin main menu with a personalised dashboard link.
+ * Builds the admin main menu with a personalised app link.
+ * Opens the unified /app route which redirects admins to the dashboard.
  */
 export function buildAdminMainMenu(telegramId: number): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       ...ADMIN_MAIN_MENU.inline_keyboard,
-      [{ text: '📊 Відкрити дашборд', web_app: { url: `https://udo-work.vercel.app/dashboard?tid=${telegramId}` } }],
+      [{ text: '📊 Відкрити дашборд', web_app: { url: `https://udo-work.vercel.app/app?tid=${telegramId}` } }],
     ],
   };
 }
