@@ -1424,8 +1424,13 @@ export default function DashboardPage() {
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok || !data.ok || data.user?.role !== 'admin') {
-          setAuthState('denied');
-          setAuthError(data.error ?? 'not_admin');
+          // If they're not an admin, redirect employees to the timer miniapp
+          if (telegramId) {
+            window.location.replace(`/app?tid=${telegramId}`);
+          } else {
+            setAuthState('denied');
+            setAuthError(data.error ?? 'not_admin');
+          }
         } else {
           setAuthUser(data.user);
           setAuthState('ok');
