@@ -15,9 +15,10 @@ import * as telegramClient from '@/lib/telegram/client';
 import * as employeeHandlers from '@/lib/handlers/employee.handlers';
 import * as adminHandlers from '@/lib/handlers/admin.handlers';
 import { sessionService } from '@/lib/services/session.service';
+import { taskService } from '@/lib/services/task.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
-import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu, buildEmployeeMainMenu } from '@/lib/telegram/keyboards';
+import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu, buildEmployeeMainMenu, buildContextualEmployeeMenu } from '@/lib/telegram/keyboards';
 import type { TelegramUpdate, HandlerContext } from '@/types/index';
 
 // ---------------------------------------------------------------------------
@@ -58,7 +59,8 @@ const EMPLOYEE_TEXT_ACTIONS: Record<string, string> = {
   '🚀 Почати задачу': 'start_task',
   '⏸️ Пауза': 'pause_task',
   '▶️ Відновити': 'resume_task',
-  '✅ Завершити задачу': 'complete_task',
+  '✅ Завершити': 'complete_task',
+  '🔁 Повторити задачу': 'recent_tasks',
   '📊 Моя активність': 'my_activity',
   // Legacy labels (kept for backward compatibility with existing sessions)
   '▶ Почати задачу': 'start_task',
@@ -66,6 +68,7 @@ const EMPLOYEE_TEXT_ACTIONS: Record<string, string> = {
   '▶ Відновити': 'resume_task',
   '✓ Завершити задачу': 'complete_task',
   '▶️ Почати задачу': 'start_task',
+  '✅ Завершити задачу': 'complete_task',
 };
 
 /** Maps reply keyboard button text to the equivalent callback action for admins. */
@@ -141,8 +144,11 @@ export async function route(
           reply_markup: buildAdminMainMenu(user.telegram_id),
         });
       } else {
+        // Build contextual menu based on current task state
+        const activeTask = await taskService.getActiveTask(user.id).catch(() => null);
+        const taskStatus = activeTask ? (activeTask.status as 'in_progress' | 'paused') : null;
         await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
-          reply_markup: buildEmployeeMainMenu(user.telegram_id),
+          reply_markup: buildContextualEmployeeMenu(taskStatus, user.telegram_id),
         });
       }
       return;
@@ -282,8 +288,10 @@ export async function route(
         reply_markup: buildAdminMainMenu(user.telegram_id),
       });
     } else {
+      const activeTask = await taskService.getActiveTask(user.id).catch(() => null);
+      const taskStatus = activeTask ? (activeTask.status as 'in_progress' | 'paused') : null;
       await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
-        reply_markup: buildEmployeeMainMenu(user.telegram_id),
+        reply_markup: buildContextualEmployeeMenu(taskStatus, user.telegram_id),
       });
     }
   }
@@ -311,20 +319,24 @@ async function handleCallbackData(
 
     // back_to_main works for any role
     if (action === 'back_to_main') {
-      if (ctx.messageId) {
-        const text = user.role === 'admin' ? MESSAGES.MAIN_MENU_ADMIN : MESSAGES.MAIN_MENU_EMPLOYEE;
-        const keyboard = user.role === 'admin'
-          ? buildAdminMainMenu(user.telegram_id)
-          : buildEmployeeMainMenu(user.telegram_id);
-        await telegramClient.editMessageText(chatId, ctx.messageId, text, { reply_markup: keyboard });
-      } else {
-        if (user.role === 'admin') {
-          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, { reply_markup: buildAdminMainMenu(user.telegram_id) });
+      if (user.role === 'admin') {
+        const text = MESSAGES.MAIN_MENU_ADMIN;
+        const keyboard = buildAdminMainMenu(user.telegram_id);
+        if (ctx.messageId) {
+          await telegramClient.editMessageText(chatId, ctx.messageId, text, { reply_markup: keyboard });
         } else {
-          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, { reply_markup: buildEmployeeMainMenu(user.telegram_id) });
+          await telegramClient.sendMessage(chatId, text, { reply_markup: keyboard });
+        }
+      } else {
+        const activeTask = await taskService.getActiveTask(user.id).catch(() => null);
+        const taskStatus = activeTask ? (activeTask.status as 'in_progress' | 'paused') : null;
+        const keyboard = buildContextualEmployeeMenu(taskStatus, user.telegram_id);
+        if (ctx.messageId) {
+          await telegramClient.editMessageText(chatId, ctx.messageId, MESSAGES.MAIN_MENU_EMPLOYEE, { reply_markup: keyboard });
+        } else {
+          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, { reply_markup: keyboard });
         }
       }
-      // Reset session state when going back to main
       await sessionService.resetSession(user.id).catch(() => {});
       return;
     }

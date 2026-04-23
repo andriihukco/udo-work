@@ -18,30 +18,58 @@ import type { InlineKeyboardMarkup, ReplyKeyboardMarkup } from './types';
 // Static keyboards
 // ---------------------------------------------------------------------------
 
-/** Main menu shown to employees. */
+/** Main menu shown to employees — static fallback (no active task). */
 export const EMPLOYEE_MAIN_MENU: InlineKeyboardMarkup = {
   inline_keyboard: [
     [{ text: '🚀 Почати задачу', callback_data: 'action:start_task' }],
     [{ text: '🔁 Повторити задачу', callback_data: 'action:recent_tasks' }],
-    [
-      { text: '⏸️ Пауза', callback_data: 'action:pause_task' },
-      { text: '▶️ Відновити', callback_data: 'action:resume_task' },
-    ],
-    [{ text: '✅ Завершити задачу', callback_data: 'action:complete_task' }],
     [{ text: '📊 Моя активність', callback_data: 'action:my_activity' }],
   ],
 };
 
 /**
+ * Builds a context-aware employee menu based on current task state.
+ * Only shows actions that are valid for the current state.
+ */
+export function buildContextualEmployeeMenu(
+  taskStatus: 'in_progress' | 'paused' | null,
+  telegramId?: number,
+): InlineKeyboardMarkup {
+  const rows: { text: string; callback_data: string }[][] = [];
+
+  if (!taskStatus) {
+    // No active task — show start options
+    rows.push([{ text: '🚀 Почати задачу', callback_data: 'action:start_task' }]);
+    rows.push([{ text: '🔁 Повторити задачу', callback_data: 'action:recent_tasks' }]);
+  } else if (taskStatus === 'in_progress') {
+    // Task running — can pause or complete
+    rows.push([
+      { text: '⏸️ Пауза', callback_data: 'action:pause_task' },
+      { text: '✅ Завершити', callback_data: 'action:complete_task' },
+    ]);
+  } else if (taskStatus === 'paused') {
+    // Task paused — can resume or complete
+    rows.push([
+      { text: '▶️ Відновити', callback_data: 'action:resume_task' },
+      { text: '✅ Завершити', callback_data: 'action:complete_task' },
+    ]);
+  }
+
+  rows.push([{ text: '📊 Моя активність', callback_data: 'action:my_activity' }]);
+
+  if (telegramId) {
+    rows.push([{ text: '⏱️ Відкрити таймер', web_app: { url: `https://udo-work.vercel.app/app?tid=${telegramId}` } } as any]);
+  }
+
+  return { inline_keyboard: rows };
+}
+
+/**
  * Builds the employee main menu with a personalised app link.
  */
 export function buildEmployeeMainMenu(telegramId: number): InlineKeyboardMarkup {
-  return {
-    inline_keyboard: [
-      ...EMPLOYEE_MAIN_MENU.inline_keyboard,
-      [{ text: '⏱️ Відкрити таймер', web_app: { url: `https://udo-work.vercel.app/app?tid=${telegramId}` } }],
-    ],
-  };
+  // Default to no-task state for /start command (we don't know task state here)
+  return buildContextualEmployeeMenu(null, telegramId);
 }
 
 /** Main menu shown to admins (static fallback without dashboard link). */

@@ -92,10 +92,28 @@ function formatTotalTime(totalMinutes: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Admin redirect view
+// Admin redirect view — opens dashboard in same WebApp context
 // ---------------------------------------------------------------------------
 
 function AdminRedirectView({ name, telegramId }: { name: string; telegramId: number }) {
+  const dashboardUrl = `/dashboard?tid=${telegramId}`;
+
+  // Use Telegram WebApp navigation if available, otherwise use window.location
+  const openDashboard = () => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg?.openLink) {
+      // Replace current WebApp page with dashboard
+      window.location.href = dashboardUrl;
+    } else {
+      window.location.href = dashboardUrl;
+    }
+  };
+
+  // Auto-redirect immediately
+  useEffect(() => {
+    window.location.replace(dashboardUrl);
+  }, [dashboardUrl]);
+
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center px-6 gap-6" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <div className="text-5xl">🛡️</div>
@@ -105,14 +123,14 @@ function AdminRedirectView({ name, telegramId }: { name: string; telegramId: num
       </div>
       <div className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-3">
         <div className="text-sm text-slate-300 text-center mb-1">
-          Для адміністраторів доступний повний дашборд
+          Переходимо до дашборду...
         </div>
-        <a
-          href={`/dashboard?tid=${telegramId}`}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-center transition-colors block"
+        <button
+          onClick={openDashboard}
+          className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-center transition-colors"
         >
           📊 Відкрити дашборд
-        </a>
+        </button>
       </div>
     </div>
   );

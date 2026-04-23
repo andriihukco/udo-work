@@ -21,6 +21,7 @@ import {
   DELIVERABLE_CHOICE_KEYBOARD,
   ADD_MORE_KEYBOARD,
   EMPLOYEE_MAIN_MENU,
+  buildContextualEmployeeMenu,
 } from '@/lib/telegram/keyboards';
 import {
   ActiveTaskExistsError,
@@ -47,6 +48,19 @@ import type {
 async function sendDbError(chatId: number, err: unknown): Promise<void> {
   logger.error('Employee handler: error', err);
   await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);
+}
+
+/** Returns a context-aware employee menu based on the user's current task state. */
+async function getEmployeeMenu(userId: string, telegramId: number) {
+  try {
+    const activeTask = await taskService.getActiveTask(userId);
+    return buildContextualEmployeeMenu(
+      activeTask ? (activeTask.status as 'in_progress' | 'paused') : null,
+      telegramId,
+    );
+  } catch {
+    return buildContextualEmployeeMenu(null, telegramId);
+  }
 }
 
 function esc(text: string): string {
@@ -82,7 +96,8 @@ export async function handleStartTask(ctx: HandlerContext): Promise<void> {
   try {
     const activeTask = await taskService.getActiveTask(user.id);
     if (activeTask) {
-      await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      const menu = buildContextualEmployeeMenu(activeTask.status as 'in_progress' | 'paused', user.telegram_id);
+      await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: menu });
       return;
     }
     // Show projects the employee is a member of; fall back to all active projects
@@ -91,7 +106,7 @@ export async function handleStartTask(ctx: HandlerContext): Promise<void> {
       projects = await projectService.getActiveProjects();
     }
     if (projects.length === 0) {
-      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
     // Set state BEFORE showing the keyboard so the router knows this is an
@@ -110,7 +125,7 @@ export async function handleProjectSelected(ctx: HandlerContext, projectId: stri
   try {
     const project = await projectService.findById(projectId);
     if (!project) {
-      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
     const sessionContext: AwaitingTaskNameContext = {
@@ -138,7 +153,7 @@ export async function handleTaskNameInput(ctx: HandlerContext, text: string): Pr
   const sessionCtx = session.context as AwaitingTaskNameContext | null;
   if (!sessionCtx?.selectedProjectId || !sessionCtx?.selectedProjectName) {
     await sessionService.resetSession(user.id);
-    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: EMPLOYEE_MAIN_MENU });
+    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
     return;
   }
   try {
@@ -147,7 +162,7 @@ export async function handleTaskNameInput(ctx: HandlerContext, text: string): Pr
     await telegramClient.sendMessage(
       chatId,
       MESSAGES.TASK_STARTED(esc(task.name), esc(sessionCtx.selectedProjectName), timeLog.started_at),
-      { parse_mode: 'Markdown', reply_markup: EMPLOYEE_MAIN_MENU },
+      { parse_mode: 'Markdown', reply_markup: buildContextualEmployeeMenu('in_progress', user.telegram_id) },
     );
     const project = await projectService.findById(sessionCtx.selectedProjectId);
     if (project) {
@@ -157,7 +172,7 @@ export async function handleTaskNameInput(ctx: HandlerContext, text: string): Pr
     }
   } catch (err) {
     if (err instanceof ActiveTaskExistsError) {
-      await telegramClient.sendMessage(chatId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await telegramClient.sendMessage(chatId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: buildContextualEmployeeMenu('in_progress', user.telegram_id) });
     } else if (err instanceof ValidationError) {
       await telegramClient.sendMessage(chatId, MESSAGES.TASK_NAME_TOO_LONG);
     } else {
@@ -177,11 +192,11 @@ export async function handlePauseTask(ctx: HandlerContext): Promise<void> {
     await sessionService.resetSession(user.id);
     await reply(chatId, messageId,
       MESSAGES.TASK_PAUSED(esc(task.name), timeLog.paused_at ?? new Date().toISOString()),
-      { parse_mode: 'Markdown', reply_markup: EMPLOYEE_MAIN_MENU },
+      { parse_mode: 'Markdown', reply_markup: buildContextualEmployeeMenu('paused', user.telegram_id) },
     );
   } catch (err) {
     if (err instanceof NoActiveTaskError) {
-      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_TASK, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_TASK, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
     } else {
       await sendDbError(chatId, err);
     }
@@ -199,11 +214,11 @@ export async function handleResumeTask(ctx: HandlerContext): Promise<void> {
     await sessionService.resetSession(user.id);
     await reply(chatId, messageId,
       MESSAGES.TASK_RESUMED(esc(task.name), timeLog.started_at),
-      { parse_mode: 'Markdown', reply_markup: EMPLOYEE_MAIN_MENU },
+      { parse_mode: 'Markdown', reply_markup: buildContextualEmployeeMenu('in_progress', user.telegram_id) },
     );
   } catch (err) {
     if (err instanceof NoPausedTaskError) {
-      await reply(chatId, messageId, MESSAGES.NO_PAUSED_TASK, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, MESSAGES.NO_PAUSED_TASK, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
     } else {
       await sendDbError(chatId, err);
     }
@@ -219,7 +234,7 @@ export async function handleCompleteTask(ctx: HandlerContext): Promise<void> {
   try {
     const activeTask = await taskService.getActiveTask(user.id);
     if (!activeTask) {
-      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_TASK, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_TASK, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
     const sessionCtx: AwaitingDeliverableContext = { taskId: activeTask.id, taskName: activeTask.name, attachmentCount: 0 };
@@ -238,7 +253,7 @@ export async function handleTaskCommentInput(ctx: HandlerContext, text: string):
   const deliverableCtx = session.context as AwaitingDeliverableContext | null;
   if (!deliverableCtx?.taskId) {
     await sessionService.resetSession(user.id);
-    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: EMPLOYEE_MAIN_MENU });
+    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
     return;
   }
   try {
@@ -274,7 +289,7 @@ export async function handleDeliverableInput(ctx: HandlerContext, message: Teleg
   const deliverableCtx = session.context as AwaitingDeliverableContext | null;
   if (!deliverableCtx?.taskId) {
     await sessionService.resetSession(user.id);
-    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: EMPLOYEE_MAIN_MENU });
+    await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
     return;
   }
   try {
@@ -322,13 +337,12 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
   const { user, session, chatId } = ctx;
   try {
     const { task, totalTime } = await taskService.completeTask(user.id);
-    // Use task.id directly — don't rely on potentially stale session context
     const attachments = await storageService.getAttachments(task.id);
     await sessionService.resetSession(user.id);
     await telegramClient.sendMessage(
       chatId,
       MESSAGES.TASK_COMPLETED(esc(task.name), totalTime),
-      { parse_mode: 'Markdown', reply_markup: EMPLOYEE_MAIN_MENU },
+      { parse_mode: 'Markdown', reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) },
     );
     const project = await projectService.findById(task.project_id);
     if (project) {
@@ -338,7 +352,7 @@ async function finaliseTask(ctx: HandlerContext): Promise<void> {
     }
   } catch (err) {
     if (err instanceof NoActiveTaskError) {
-      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_TASK, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await telegramClient.sendMessage(chatId, MESSAGES.NO_ACTIVE_TASK, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
     } else {
       await sendDbError(chatId, err);
     }
@@ -354,12 +368,12 @@ export async function handleRecentTasks(ctx: HandlerContext, page = 0): Promise<
   try {
     const activeTask = await taskService.getActiveTask(user.id);
     if (activeTask) {
-      await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: buildContextualEmployeeMenu(activeTask.status as 'in_progress' | 'paused', user.telegram_id) });
       return;
     }
     const { tasks, total } = await taskService.getTasksWithFilters({ userId: user.id }, page);
     if (tasks.length === 0 && page === 0) {
-      await reply(chatId, messageId, '📭 У вас ще немає завершених задач для повторного використання.', { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, '📭 У вас ще немає завершених задач для повторного використання.', { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
     const totalPages = Math.ceil(total / 10);
@@ -381,7 +395,7 @@ export async function handleReuseTask(ctx: HandlerContext, taskId: string): Prom
     const { tasks: found } = await taskService.getTasksWithFilters({ userId: user.id }, 0);
     const original = found.find(t => t.id === taskId);
     if (!original) {
-      await reply(chatId, messageId, '⚠️ Задачу не знайдено.', { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, '⚠️ Задачу не знайдено.', { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
     // Store project + suggested name in session, ask to confirm or rename
@@ -391,7 +405,7 @@ export async function handleReuseTask(ctx: HandlerContext, taskId: string): Prom
     };
     const project = await projectService.findById(original.project_id);
     if (!project) {
-      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: EMPLOYEE_MAIN_MENU });
+      await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
     sessionContext.selectedProjectName = project.name;
