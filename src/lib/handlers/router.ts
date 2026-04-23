@@ -55,27 +55,32 @@ const ADMIN_ONLY_ACTIONS = new Set([
 /** Maps reply keyboard button text to the equivalent callback action for employees. */
 const EMPLOYEE_TEXT_ACTIONS: Record<string, string> = {
   // Current keyboard labels
+  '🚀 Почати задачу': 'start_task',
+  '⏸️ Пауза': 'pause_task',
+  '▶️ Відновити': 'resume_task',
+  '✅ Завершити задачу': 'complete_task',
+  '📊 Моя активність': 'my_activity',
+  // Legacy labels (kept for backward compatibility with existing sessions)
   '▶ Почати задачу': 'start_task',
   '⏸ Пауза': 'pause_task',
   '▶ Відновити': 'resume_task',
   '✓ Завершити задачу': 'complete_task',
-  '📊 Моя активність': 'my_activity',
-  // Legacy labels (kept for backward compatibility with existing sessions)
   '▶️ Почати задачу': 'start_task',
-  '▶️ Відновити': 'resume_task',
-  '✅ Завершити задачу': 'complete_task',
 };
 
 /** Maps reply keyboard button text to the equivalent callback action for admins. */
 const ADMIN_TEXT_ACTIONS: Record<string, string> = {
   // Current keyboard labels
-  '+ Створити проєкт': 'create_project',
-  '○ Деактивувати проєкт': 'deactivate_project',
+  '➕ Створити проєкт': 'create_project',
+  '🔴 Деактивувати проєкт': 'deactivate_project',
   '👥 Команда': 'employees',
   '📋 Задачі та логи': 'tasks_logs',
-  '⚙ Управління користувачами': 'manage_admins',
+  '⚙️ Управління користувачами': 'manage_admins',
   '🔗 Запросити до проєкту': 'invite_to_project',
   // Legacy labels (kept for backward compatibility)
+  '+ Створити проєкт': 'create_project',
+  '○ Деактивувати проєкт': 'deactivate_project',
+  '⚙ Управління користувачами': 'manage_admins',
   '📁 Створити проєкт': 'create_project',
   '🚫 Деактивувати проєкт': 'deactivate_project',
   '👥 Співробітники': 'employees',
@@ -147,18 +152,22 @@ export async function route(
     const state = session.state;
 
     // -----------------------------------------------------------------------
-    // Reply keyboard button text → action dispatch (idle state only)
-    // Allows the persistent reply keyboard to trigger the same handlers as
-    // inline buttons without requiring the user to be in a specific state.
+    // Reply keyboard button text → action dispatch (any state)
+    // The persistent reply keyboard must always work, even mid-flow.
+    // For employees: pause/resume/complete/start always interrupt the current
+    // state so the user is never stuck. The session is reset by the handler.
     // -----------------------------------------------------------------------
-    if (!state || state === 'idle') {
-      if (user.role === 'employee') {
-        const action = EMPLOYEE_TEXT_ACTIONS[text];
-        if (action) {
-          await handleCallbackData(`action:${action}`, ctx);
-          return;
-        }
-      } else if (user.role === 'admin') {
+    if (user.role === 'employee') {
+      const action = EMPLOYEE_TEXT_ACTIONS[text];
+      if (action) {
+        // Reset session first so the handler sees a clean state
+        await sessionService.resetSession(user.id).catch(() => {});
+        await handleCallbackData(`action:${action}`, { ...ctx, session: { ...ctx.session, state: null, context: null } });
+        return;
+      }
+    } else if (user.role === 'admin') {
+      // Admin reply keyboard only fires in idle state to avoid interrupting flows
+      if (!state || state === 'idle') {
         const action = ADMIN_TEXT_ACTIONS[text];
         if (action) {
           await handleCallbackData(`action:${action}`, ctx);

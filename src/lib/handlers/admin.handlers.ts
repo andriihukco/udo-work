@@ -22,6 +22,7 @@ import {
   buildAdminListKeyboard,
   buildEmployeeRemoveKeyboard,
   buildInviteRoleKeyboard,
+  buildToggleProjectKeyboard,
   ADMIN_MAIN_MENU,
   MANAGE_USERS_KEYBOARD,
 } from '@/lib/telegram/keyboards';
@@ -106,13 +107,19 @@ export async function handleProjectNameInput(ctx: HandlerContext, text: string):
 export async function handleDeactivateProject(ctx: HandlerContext): Promise<void> {
   const { chatId, messageId } = ctx;
   try {
-    const projects = await projectService.getActiveProjects();
+    const projects = await projectService.getAllProjects();
     if (projects.length === 0) {
       await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: ADMIN_MAIN_MENU });
       return;
     }
-    await reply(chatId, messageId, '🚫 Оберіть проєкт для деактивації:', {
-      reply_markup: buildProjectKeyboard(projects, 'action:back_to_main'),
+    const lines = ['🗂️ *Управління проєктами*\n\nОберіть проєкт для зміни статусу:\n'];
+    for (const p of projects) {
+      const icon = p.is_active ? '🟢' : '🔴';
+      lines.push(`${icon} ${esc(p.name)}`);
+    }
+    await reply(chatId, messageId, lines.join('\n'), {
+      parse_mode: 'Markdown',
+      reply_markup: buildToggleProjectKeyboard(projects, 'action:back_to_main'),
     });
   } catch (err) {
     await sendDbError(chatId, err);
@@ -127,12 +134,21 @@ export async function handleDeactivateProjectConfirm(ctx: HandlerContext, projec
       await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: ADMIN_MAIN_MENU });
       return;
     }
-    await projectService.deactivateProject(projectId);
-    await sessionService.resetSession(user.id);
-    await reply(chatId, messageId, MESSAGES.PROJECT_DEACTIVATED(esc(project.name)), {
-      parse_mode: 'Markdown',
-      reply_markup: ADMIN_MAIN_MENU,
-    });
+    if (project.is_active) {
+      await projectService.deactivateProject(projectId);
+      await sessionService.resetSession(user.id);
+      await reply(chatId, messageId, MESSAGES.PROJECT_DEACTIVATED(esc(project.name)), {
+        parse_mode: 'Markdown',
+        reply_markup: ADMIN_MAIN_MENU,
+      });
+    } else {
+      await projectService.activateProject(projectId);
+      await sessionService.resetSession(user.id);
+      await reply(chatId, messageId, MESSAGES.PROJECT_ACTIVATED(esc(project.name)), {
+        parse_mode: 'Markdown',
+        reply_markup: ADMIN_MAIN_MENU,
+      });
+    }
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -148,18 +164,26 @@ export async function handleEmployees(ctx: HandlerContext): Promise<void> {
     const employees = await userService.getAllEmployeesWithWeeklyTime();
     if (employees.length === 0) {
       await reply(chatId, messageId,
-        '👥 *Співробітники*\n\n📭 Жодного співробітника ще не додано.\n\nДодайте першого через *Управління користувачами*.',
+        '👥 *Команда*\n\n📭 Жодного співробітника ще не додано.\n\nДодайте першого через *Управління користувачами*.',
         { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU });
       return;
     }
-    const lines = [`👥 *Команда (${employees.length} осіб) — цей тиждень:*\n`];
+    const lines = [`👥 *Команда — ${employees.length} осіб*\n_Статистика за поточний тиждень:_\n`];
     for (const emp of employees) {
       const name = userService.getDisplayName(emp);
       const t: TimeSpent = { hours: Math.floor(emp.weeklyMinutes / 60), minutes: emp.weeklyMinutes % 60, totalMinutes: emp.weeklyMinutes };
       const timeStr = emp.weeklyMinutes === 0 ? '—' : formatTimeSpent(t);
-      const usernameStr = emp.username ? ` · @${emp.username}` : '';
-      lines.push(`👤 *${esc(name)}*${usernameStr}\n   ⏱ ${timeStr}`);
+      const usernameStr = emp.username ? ` @${emp.username}` : '';
+      let salaryStr = '';
+      if (emp.hourly_rate && emp.weeklyMinutes > 0) {
+        const earned = ((emp.weeklyMinutes / 60) * emp.hourly_rate).toFixed(0);
+        salaryStr = ` · 💰 ~${earned} грн`;
+      } else if (emp.hourly_rate) {
+        salaryStr = ` · 💵 ${emp.hourly_rate} грн/год`;
+      }
+      lines.push(`👤 *${esc(name)}*${usernameStr ? ` _(${usernameStr})_` : ''}\n   ⏱️ ${timeStr}${salaryStr}`);
     }
+    lines.push('\n_Натисніть на ім\'я для деталей_');
     await reply(chatId, messageId, lines.join('\n'), {
       parse_mode: 'Markdown',
       reply_markup: buildEmployeeListKeyboard(employees, 'action:back_to_main'),
@@ -181,27 +205,48 @@ export async function handleEmployeeDetail(ctx: HandlerContext, userId: string):
     const back = { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'action:employees' }]] };
 
     if (activities.length === 0) {
-      await reply(chatId, messageId, `👤 *${esc(name)}*\n\n📭 За поточний тиждень задач не знайдено.`, {
-        parse_mode: 'Markdown', reply_markup: back,
-      });
+      await reply(chatId, messageId,
+        `👤 *${esc(name)}*\n\n📭 За поточний тиждень задач не знайдено.`,
+        { parse_mode: 'Markdown', reply_markup: back });
       return;
     }
 
-    const lines = [`👤 *${esc(name)} — задачі за тиждень:*\n`];
-    for (const a of activities) {
-      lines.push(`${statusEmoji(a.status)} *${esc(a.taskName)}*\n   📁 ${esc(a.projectName)}\n   📊 ${statusLabel(a.status)}\n   ⏱ ${formatTimeSpent(a.timeSpent)}\n`);
-    }
     const totalMin = activities.reduce((s, a) => s + a.timeSpent.totalMinutes, 0);
     const totalTime = { hours: Math.floor(totalMin / 60), minutes: totalMin % 60, totalMinutes: totalMin };
-    lines.push(`\n*Загалом за тиждень:* ${formatTimeSpent(totalTime)}`);
 
-    // Show earnings if rate is set
-    if (employee?.hourly_rate && totalMin > 0) {
-      const earnings = ((totalMin / 60) * employee.hourly_rate).toFixed(0);
-      lines.push(`\n💰 *Заробіток:* ~${earnings} грн _(${employee.hourly_rate} грн/год)_`);
+    const lines: string[] = [];
+
+    // Header
+    const usernameStr = employee?.username ? ` · @${esc(employee.username)}` : '';
+    lines.push(`👤 *${esc(name)}*${usernameStr}`);
+    if (employee?.hourly_rate) {
+      lines.push(`💵 Ставка: *${employee.hourly_rate} грн/год*`);
+    }
+    lines.push('');
+    lines.push(`📅 *Задачі за тиждень (${activities.length}):*\n`);
+
+    for (const a of activities) {
+      const timeStr = formatTimeSpent(a.timeSpent);
+      let salaryStr = '';
+      if (employee?.hourly_rate && a.timeSpent.totalMinutes > 0) {
+        const earned = ((a.timeSpent.totalMinutes / 60) * employee.hourly_rate).toFixed(0);
+        salaryStr = ` · 💰 ~${earned} грн`;
+      }
+      lines.push(`${statusEmoji(a.status)} *${esc(a.taskName)}*`);
+      lines.push(`   📁 ${esc(a.projectName)} · ${statusLabel(a.status)}`);
+      lines.push(`   ⏱️ ${timeStr}${salaryStr}\n`);
     }
 
-    await reply(chatId, messageId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: back });  } catch (err) {
+    // Summary
+    lines.push(`─────────────────`);
+    lines.push(`⏱️ *Загалом:* ${formatTimeSpent(totalTime)}`);
+    if (employee?.hourly_rate && totalMin > 0) {
+      const earnings = ((totalMin / 60) * employee.hourly_rate).toFixed(0);
+      lines.push(`💰 *Заробіток:* ~${earnings} грн _(${employee.hourly_rate} грн/год)_`);
+    }
+
+    await reply(chatId, messageId, lines.join('\n'), { parse_mode: 'Markdown', reply_markup: back });
+  } catch (err) {
     await sendDbError(chatId, err);
   }
 }
@@ -271,16 +316,15 @@ export async function handleTaskDetail(ctx: HandlerContext, taskId: string): Pro
     const totalTime = taskService.calculateTotalTime(timeLogs);
     const totalStr = totalTime.totalMinutes > 0 ? formatTimeSpent(totalTime) : '—';
 
-    const lines = ['📋 *Деталі задачі:*\n'];
-    lines.push(`⏱ *Загальний час:* ${totalStr}\n`);
+    const lines = ['📋 *Деталі задачі*\n'];
+    lines.push(`⏱️ *Загальний час:* ${totalStr}`);
 
     if (timeLogs.length === 0) {
-      lines.push('📅 *Логи часу:* відсутні\n');
+      lines.push('\n📅 *Логи часу:* відсутні');
     } else {
-      lines.push(`📅 *Логи часу (${timeLogs.length} інтервалів):*`);
+      lines.push(`\n📅 *Логи часу (${timeLogs.length} інтервалів):*`);
       for (let i = 0; i < timeLogs.length; i++) {
         const log = timeLogs[i];
-        // Compute interval duration
         const endStr = log.paused_at ?? log.ended_at;
         let durStr = '';
         if (endStr) {
@@ -291,7 +335,7 @@ export async function handleTaskDetail(ctx: HandlerContext, taskId: string): Pro
           }
         }
         lines.push(`\n*${i + 1}.* 🟢 ${formatDateTime(log.started_at)}${durStr}`);
-        if (log.paused_at) lines.push(`   ⏸ ${formatDateTime(log.paused_at)}`);
+        if (log.paused_at) lines.push(`   ⏸️ ${formatDateTime(log.paused_at)}`);
         if (log.ended_at) lines.push(`   🔴 ${formatDateTime(log.ended_at)}`);
         if (!log.paused_at && !log.ended_at) lines.push(`   ▶️ _(активний зараз)_`);
       }
@@ -301,7 +345,7 @@ export async function handleTaskDetail(ctx: HandlerContext, taskId: string): Pro
       lines.push('\n📎 *Результати та коментарі:*');
       for (const a of attachments) {
         if (a.type === 'text') {
-          lines.push(`  ${esc(a.content)}`);
+          lines.push(`  💬 ${esc(a.content)}`);
         } else {
           lines.push(`  📄 [Файл](${a.content})`);
         }

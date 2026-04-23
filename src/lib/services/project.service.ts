@@ -34,6 +34,9 @@ export interface ProjectService {
   /** Set is_active = false for the given project. */
   deactivateProject(projectId: string): Promise<void>;
 
+  /** Set is_active = true for the given project. */
+  activateProject(projectId: string): Promise<void>;
+
   /** Return the project with the given ID, or null if not found. */
   findById(projectId: string): Promise<Project | null>;
 }
@@ -141,6 +144,21 @@ export const projectService: ProjectService = {
     if (error) {
       logger.error('ProjectService.deactivateProject failed', error);
       throw new DatabaseError('Failed to deactivate project');
+    }
+  },
+
+  /**
+   * Sets `is_active = true` for the project identified by `projectId`.
+   */
+  async activateProject(projectId: string): Promise<void> {
+    const { error } = await supabase
+      .from('projects')
+      .update({ is_active: true })
+      .eq('id', projectId);
+
+    if (error) {
+      logger.error('ProjectService.activateProject failed', error);
+      throw new DatabaseError('Failed to activate project');
     }
   },
 

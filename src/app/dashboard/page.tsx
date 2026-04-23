@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Users, FolderOpen, Zap, CheckCircle2, Clock, Play, Pause,
-  Check, Trash2, Pencil, Banknote, Plus, Search, RefreshCw,
+  Check, Trash2, Pencil, Plus, Search, RefreshCw,
   Lock, ToggleLeft, ToggleRight, User, List,
   History, Timer, ClipboardCheck, X, AlertTriangle,
   WifiOff, BarChart3, KeyRound, TrendingUp, Activity,
-  ShieldCheck, ChevronRight, Briefcase,
+  ShieldCheck, ChevronRight, Briefcase, DollarSign, ArrowLeft,
+  Wallet, CalendarDays,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -157,7 +158,7 @@ const ICONS = {
   check: Check,
   trash: Trash2,
   edit: Pencil,
-  money: Banknote,
+  money: DollarSign,
   plus: Plus,
   search: Search,
   refresh: RefreshCw,
@@ -179,6 +180,9 @@ const ICONS = {
   shield: ShieldCheck,
   chevron: ChevronRight,
   briefcase: Briefcase,
+  wallet: Wallet,
+  calendar: CalendarDays,
+  back: ArrowLeft,
 } as const;
 
 type IconName = keyof typeof ICONS;
@@ -509,52 +513,84 @@ function ProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (name:
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ stats }: { stats: StatsData }) {
-  const { summary, employees, recentTasks } = stats;
-
-  const statCards: { label: string; value: number; icon: IconName; bg: string; fg: string; border: string }[] = [
-    { label: 'Співробітники',        value: summary.totalEmployees,    icon: 'users',         bg: 'bg-blue-50',    fg: 'text-blue-600',   border: 'border-blue-100' },
-    { label: 'Активні проєкти',      value: summary.activeProjects,    icon: 'folder',        bg: 'bg-emerald-50', fg: 'text-emerald-600', border: 'border-emerald-100' },
-    { label: 'В роботі зараз',       value: summary.inProgressTasks,   icon: 'zap',           bg: 'bg-amber-50',   fg: 'text-amber-600',  border: 'border-amber-100' },
-    { label: 'Завершено цього тижня', value: summary.completedThisWeek, icon: 'check-circle',  bg: 'bg-purple-50',  fg: 'text-purple-600', border: 'border-purple-100' },
-  ];
+function OverviewTab({
+  stats,
+  onSelectEmployee,
+  onSelectProject,
+}: {
+  stats: StatsData;
+  onSelectEmployee: (id: string) => void;
+  onSelectProject: (id: string) => void;
+}) {
+  const { summary, employees, recentTasks, projects } = stats;
 
   const top5 = [...employees].sort((a, b) => b.weeklyMinutes - a.weeklyMinutes).slice(0, 5);
   const activeTasks = recentTasks.filter((t) => t.status === 'in_progress');
 
   return (
-    <div className="space-y-5">
-      {/* Stat cards 2×2 */}
-      <div className="grid grid-cols-2 gap-3">
-        {statCards.map((c) => (
-          <div key={c.label} className={`rounded-2xl p-4 border ${c.bg} ${c.border}`}>
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 bg-white/70 ${c.fg}`}>
-              <Ic name={c.icon} size={18} />
-            </div>
-            <div className={`text-2xl font-bold tracking-tight ${c.fg}`}>{c.value}</div>
-            <div className="text-xs text-gray-500 mt-0.5 leading-tight font-medium">{c.label}</div>
+    <div className="space-y-6">
+      {/* Compact stat row */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white rounded-2xl p-3 shadow-sm flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500 flex-shrink-0">
+            <Ic name="users" size={16} />
           </div>
-        ))}
+          <div>
+            <div className="text-xl font-bold text-gray-800 leading-none">{summary.totalEmployees}</div>
+            <div className="text-xs text-gray-400 mt-0.5">Співробітники</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl p-3 shadow-sm flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500 flex-shrink-0">
+            <Ic name="folder" size={16} />
+          </div>
+          <div>
+            <div className="text-xl font-bold text-gray-800 leading-none">{summary.activeProjects}</div>
+            <div className="text-xs text-gray-400 mt-0.5">Активні проєкти</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl p-3 shadow-sm flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center text-amber-500 flex-shrink-0">
+            <Ic name="zap" size={16} />
+          </div>
+          <div>
+            <div className="text-xl font-bold text-gray-800 leading-none">{summary.inProgressTasks}</div>
+            <div className="text-xs text-gray-400 mt-0.5">В роботі зараз</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl p-3 shadow-sm flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-purple-50 flex items-center justify-center text-purple-500 flex-shrink-0">
+            <Ic name="check-circle" size={16} />
+          </div>
+          <div>
+            <div className="text-xl font-bold text-gray-800 leading-none">{summary.completedThisWeek}</div>
+            <div className="text-xs text-gray-400 mt-0.5">Завершено за тиждень</div>
+          </div>
+        </div>
       </div>
 
       {/* Top employees */}
       <section>
-        <div className="flex items-center gap-2 mb-3">
-          <Ic name="trending" size={14} className="text-gray-400" />
+        <div className="flex items-center gap-2 mb-2">
+          <Ic name="trending" size={13} className="text-gray-400" />
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Топ-5 за тиждень</h2>
         </div>
         {top5.length === 0 ? (
-          <EmptyState icon="clock" title="Немає даних за цей тиждень" hint="Дані з'являться після того, як співробітники почнуть відстежувати час." />
+          <EmptyState icon="clock" title="Немає даних за цей тиждень" />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {top5.map((emp, i) => (
-              <div key={emp.id} className="flex items-center gap-3 bg-white rounded-2xl px-4 py-3 shadow-sm">
-                <span className="text-xs font-bold text-gray-300 w-4 text-center tabular-nums">{i + 1}</span>
-                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm flex-shrink-0">
+              <button
+                key={emp.id}
+                onClick={() => onSelectEmployee(emp.id)}
+                className="w-full flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 shadow-sm hover:bg-gray-50 active:bg-gray-100 transition-colors text-left"
+              >
+                <span className="text-xs font-bold text-gray-300 w-4 text-center tabular-nums flex-shrink-0">{i + 1}</span>
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs flex-shrink-0">
                   {emp.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{emp.name}</p>
+                  <p className="text-sm font-medium text-gray-800 truncate">{emp.name}</p>
                   {emp.username && <p className="text-xs text-gray-400">@{emp.username}</p>}
                 </div>
                 <div className="text-right flex-shrink-0">
@@ -563,40 +599,30 @@ function OverviewTab({ stats }: { stats: StatsData }) {
                     <div className="text-xs text-emerald-600 font-medium">{Math.round((emp.weeklyMinutes / 60) * emp.hourlyRate)}₴</div>
                   )}
                 </div>
-              </div>
+                <Ic name="chevron" size={14} className="text-gray-300 flex-shrink-0" />
+              </button>
             ))}
           </div>
         )}
       </section>
 
       {/* Active tasks */}
-      <section>
-        <div className="flex items-center gap-2 mb-3">
-          <Ic name="activity" size={14} className="text-gray-400" />
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Активні задачі</h2>
-        </div>
-        {activeTasks.length === 0 ? (
-          <EmptyState icon="task" title="Немає активних задач" hint="Коли співробітники почнуть роботу, задачі з'являться тут." />
-        ) : (
-          <div className="space-y-2">
-            {activeTasks.slice(0, 10).map((t) => (
-              <div key={t.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <p className="text-sm font-semibold text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
-                  <StatusBadge status={t.status} />
-                </div>
-                <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
-                  <span className="inline-flex items-center gap-1">
-                    <Ic name="person" size={11} />
-                    {t.userName}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Ic name="folder" size={11} />
-                    {t.projectName}
-                  </span>
+      {activeTasks.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Активні задачі ({activeTasks.length})</h2>
+          </div>
+          <div className="space-y-1.5">
+            {activeTasks.slice(0, 8).map((t) => (
+              <div key={t.id} className="bg-white rounded-xl px-3 py-2.5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{t.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{t.userName} · {t.projectName}</p>
+                  </div>
                   {(t.totalMinutes + t.activeMinutes) > 0 && (
-                    <span className="text-blue-500 font-semibold inline-flex items-center gap-1">
-                      <Ic name="timer" size={11} />
+                    <span className="text-xs font-semibold text-blue-600 tabular-nums flex-shrink-0">
                       {fmtTime(t.totalMinutes + t.activeMinutes)}
                     </span>
                   )}
@@ -604,8 +630,141 @@ function OverviewTab({ stats }: { stats: StatsData }) {
               </div>
             ))}
           </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ─── Employee Detail View ─────────────────────────────────────────────────────
+
+interface EmployeeDetailProps {
+  user: DashUser;
+  stats: StatsData | null;
+  onBack: () => void;
+  onEdit: (id: string, firstName: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}
+
+function EmployeeDetail({ user, stats, onBack, onEdit, onDelete }: EmployeeDetailProps) {
+  const empStat = stats?.employees.find((e) => e.id === user.id);
+  const tasks = stats?.recentTasks.filter((t) => t.userId === user.id) ?? [];
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const totalMinutes = empStat?.weeklyMinutes ?? 0;
+  const weeklyEarnings = user.hourly_rate && totalMinutes > 0
+    ? Math.round((totalMinutes / 60) * user.hourly_rate)
+    : null;
+
+  return (
+    <div className="space-y-4">
+      {/* Back */}
+      <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+        <Ic name="back" size={16} />
+        Назад до команди
+      </button>
+
+      {/* Profile card */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg flex-shrink-0">
+            {(user.first_name ?? user.username ?? '?').charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-800">{displayName(user)}</p>
+            {user.username && <p className="text-sm text-gray-400">@{user.username}</p>}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="bg-gray-50 rounded-xl p-2.5">
+            <p className="text-xs text-gray-400 mb-0.5">Цей тиждень</p>
+            <p className="font-semibold text-blue-600">{fmtTime(totalMinutes)}</p>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-2.5">
+            <p className="text-xs text-gray-400 mb-0.5">Ставка</p>
+            <p className="font-semibold text-gray-700">{user.hourly_rate ? `${user.hourly_rate} ₴/год` : '—'}</p>
+          </div>
+          {weeklyEarnings !== null && (
+            <div className="bg-emerald-50 rounded-xl p-2.5 col-span-2">
+              <p className="text-xs text-emerald-600 mb-0.5">Заробіток за тиждень</p>
+              <p className="font-bold text-emerald-700">~{weeklyEarnings} ₴</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Tasks this week */}
+      <section>
+        <div className="flex items-center gap-2 mb-2">
+          <Ic name="task" size={13} className="text-gray-400" />
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Задачі за тиждень ({tasks.length})</h2>
+        </div>
+        {tasks.length === 0 ? (
+          <EmptyState icon="clock" title="Немає задач за цей тиждень" />
+        ) : (
+          <div className="space-y-1.5">
+            {tasks.map((t) => {
+              const mins = t.totalMinutes + (t.status === 'in_progress' ? t.activeMinutes : 0);
+              const earned = user.hourly_rate && mins > 0
+                ? Math.round((mins / 60) * user.hourly_rate)
+                : null;
+              return (
+                <div key={t.id} className="bg-white rounded-xl px-3 py-2.5 shadow-sm">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
+                    <StatusBadge status={t.status} />
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                    <span className="inline-flex items-center gap-1">
+                      <Ic name="folder" size={10} />
+                      {t.projectName}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 font-semibold ${mins > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                      <Ic name="timer" size={10} />
+                      {fmtTime(mins)}
+                    </span>
+                    {earned !== null && (
+                      <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
+                        <Ic name="money" size={10} />
+                        ~{earned} ₴
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </section>
+
+      {/* Danger zone */}
+      {!confirmDelete ? (
+        <button
+          onClick={() => setConfirmDelete(true)}
+          className="w-full flex items-center justify-center gap-2 text-sm text-red-500 hover:text-red-600 py-2 transition-colors"
+        >
+          <Ic name="trash" size={14} />
+          Видалити співробітника
+        </button>
+      ) : (
+        <div className="bg-red-50 rounded-2xl p-4 space-y-3">
+          <p className="text-sm text-red-700 font-medium text-center">Видалити <strong>{displayName(user)}</strong>?</p>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => { await onDelete(user.id); onBack(); }}
+              className="flex-1 bg-red-500 text-white py-2.5 rounded-xl text-sm font-medium"
+            >
+              Видалити
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="flex-1 bg-white text-gray-700 py-2.5 rounded-xl text-sm border border-gray-200"
+            >
+              Скасувати
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -628,8 +787,8 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
   const [editName, setEditName] = useState('');
   const [editingRateId, setEditingRateId] = useState<string | null>(null);
   const [editRate, setEditRate] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
 
   const employees = users.filter((u) => u.role === 'employee');
   const filtered = employees.filter((u) => {
@@ -649,14 +808,12 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
     setEditingId(u.id);
     setEditName(u.first_name ?? '');
     setEditingRateId(null);
-    setConfirmDelete(null);
   }
 
   function startEditRate(u: DashUser) {
     setEditingRateId(u.id);
     setEditRate(u.hourly_rate ? String(u.hourly_rate) : '');
     setEditingId(null);
-    setConfirmDelete(null);
   }
 
   async function saveEdit(id: string) {
@@ -686,6 +843,22 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
     }
   }
 
+  // Show employee detail
+  if (selectedEmployee) {
+    const emp = users.find((u) => u.id === selectedEmployee);
+    if (emp) {
+      return (
+        <EmployeeDetail
+          user={emp}
+          stats={stats}
+          onBack={() => setSelectedEmployee(null)}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      );
+    }
+  }
+
   return (
     <div className="space-y-3">
       {/* Search + Add */}
@@ -711,17 +884,12 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
         </button>
       </div>
 
-      {/* Count */}
       {search && (
         <p className="text-xs text-gray-400 px-1">{filtered.length} з {employees.length} співробітників</p>
       )}
 
       {filtered.length === 0 && !search ? (
-        <EmptyState
-          icon="users"
-          title="Немає співробітників"
-          hint="Натисніть + щоб додати першого співробітника до команди."
-        />
+        <EmptyState icon="users" title="Немає співробітників" hint="Натисніть + щоб додати першого співробітника до команди." />
       ) : filtered.length === 0 ? (
         <EmptyState icon="search" title="Нічого не знайдено" hint={`Немає співробітників за запитом «${search}»`} />
       ) : (
@@ -730,7 +898,6 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
             const empStat = getEmpStat(u.id);
             const isEditing = editingId === u.id;
             const isEditingRate = editingRateId === u.id;
-            const isConfirming = confirmDelete === u.id;
 
             return (
               <div key={u.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
@@ -748,19 +915,10 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                       className="flex-1 border border-blue-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                       placeholder="Ім'я"
                     />
-                    <button
-                      onClick={() => saveEdit(u.id)}
-                      disabled={saving}
-                      className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-xl disabled:opacity-50"
-                      aria-label="Зберегти"
-                    >
+                    <button onClick={() => saveEdit(u.id)} disabled={saving} className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-xl disabled:opacity-50" aria-label="Зберегти">
                       <Ic name="check" size={16} />
                     </button>
-                    <button
-                      onClick={() => setEditingId(null)}
-                      className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-600 rounded-xl"
-                      aria-label="Скасувати"
-                    >
+                    <button onClick={() => setEditingId(null)} className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-600 rounded-xl" aria-label="Скасувати">
                       <Ic name="x" size={16} />
                     </button>
                   </div>
@@ -779,28 +937,22 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                       className="flex-1 border border-emerald-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
                       placeholder="150"
                     />
-                    <button
-                      onClick={() => saveRate(u.id)}
-                      disabled={saving}
-                      className="w-10 h-10 flex items-center justify-center bg-emerald-600 text-white rounded-xl disabled:opacity-50"
-                      aria-label="Зберегти ставку"
-                    >
+                    <button onClick={() => saveRate(u.id)} disabled={saving} className="w-10 h-10 flex items-center justify-center bg-emerald-600 text-white rounded-xl disabled:opacity-50" aria-label="Зберегти ставку">
                       <Ic name="check" size={16} />
                     </button>
-                    <button
-                      onClick={() => setEditingRateId(null)}
-                      className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-600 rounded-xl"
-                      aria-label="Скасувати"
-                    >
+                    <button onClick={() => setEditingRateId(null)} className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-600 rounded-xl" aria-label="Скасувати">
                       <Ic name="x" size={16} />
                     </button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold flex-shrink-0">
+                    <button
+                      onClick={() => setSelectedEmployee(u.id)}
+                      className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold flex-shrink-0 hover:bg-blue-200 transition-colors"
+                    >
                       {(u.first_name ?? u.username ?? '?').charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
+                    </button>
+                    <button onClick={() => setSelectedEmployee(u.id)} className="flex-1 min-w-0 text-left">
                       <p className="font-medium text-gray-800 truncate">{displayName(u)}</p>
                       <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5 flex-wrap">
                         {u.username && <span>@{u.username}</span>}
@@ -820,53 +972,25 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                           </span>
                         ) : null}
                       </div>
+                    </button>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => startEdit(u)}
+                        className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-blue-500 rounded-xl hover:bg-blue-50 transition-colors"
+                        title="Редагувати ім'я"
+                        aria-label="Редагувати ім'я"
+                      >
+                        <Ic name="edit" size={15} />
+                      </button>
+                      <button
+                        onClick={() => startEditRate(u)}
+                        className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-emerald-500 rounded-xl hover:bg-emerald-50 transition-colors"
+                        title="Встановити ставку"
+                        aria-label="Встановити ставку"
+                      >
+                        <Ic name="money" size={15} />
+                      </button>
                     </div>
-                    {!isConfirming && (
-                      <div className="flex items-center gap-0.5">
-                        <button
-                          onClick={() => startEdit(u)}
-                          className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-blue-500 rounded-xl hover:bg-blue-50 transition-colors"
-                          title="Редагувати ім'я"
-                          aria-label="Редагувати ім'я"
-                        >
-                          <Ic name="edit" size={16} />
-                        </button>
-                        <button
-                          onClick={() => startEditRate(u)}
-                          className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-emerald-500 rounded-xl hover:bg-emerald-50 transition-colors"
-                          title="Встановити ставку"
-                          aria-label="Встановити ставку"
-                        >
-                          <Ic name="money" size={16} />
-                        </button>
-                        <button
-                          onClick={() => { setConfirmDelete(u.id); setEditingId(null); setEditingRateId(null); }}
-                          className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
-                          title="Видалити"
-                          aria-label="Видалити співробітника"
-                        >
-                          <Ic name="trash" size={16} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {isConfirming && (
-                  <div className="mt-3 flex items-center gap-2 justify-end border-t border-gray-100 pt-3">
-                    <p className="text-sm text-gray-600 flex-1">Видалити <strong>{displayName(u)}</strong>?</p>
-                    <button
-                      onClick={async () => { await onDelete(u.id); setConfirmDelete(null); }}
-                      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
-                    >
-                      Видалити
-                    </button>
-                    <button
-                      onClick={() => setConfirmDelete(null)}
-                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm transition-colors"
-                    >
-                      Скасувати
-                    </button>
                   </div>
                 )}
               </div>
@@ -1552,7 +1676,7 @@ export default function DashboardPage() {
           <SkeletonList count={3} />
         </div>
       );
-      return <OverviewTab stats={stats} />;
+      return <OverviewTab stats={stats} onSelectEmployee={(id) => { setActiveTab('team'); }} onSelectProject={(id) => { setActiveTab('projects'); }} />;
     }
 
     if (activeTab === 'team') {

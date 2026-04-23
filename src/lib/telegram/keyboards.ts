@@ -3,8 +3,8 @@
  * Exports static keyboards and dynamic builder functions.
  *
  * UX principles applied:
- * - Consistent icon usage: one emoji per action type, used consistently
- * - Clear labels: action verbs, not nouns
+ * - Rich emoji usage for visual clarity
+ * - Grouped actions in logical rows
  * - Back navigation always present
  * - Destructive actions clearly labeled
  *
@@ -21,10 +21,13 @@ import type { InlineKeyboardMarkup, ReplyKeyboardMarkup } from './types';
 /** Main menu shown to employees. */
 export const EMPLOYEE_MAIN_MENU: InlineKeyboardMarkup = {
   inline_keyboard: [
-    [{ text: '▶ Почати задачу', callback_data: 'action:start_task' }],
-    [{ text: '↩ Повторити задачу', callback_data: 'action:recent_tasks' }],
-    [{ text: '⏸ Пауза', callback_data: 'action:pause_task' }, { text: '▶ Відновити', callback_data: 'action:resume_task' }],
-    [{ text: '✓ Завершити задачу', callback_data: 'action:complete_task' }],
+    [{ text: '🚀 Почати задачу', callback_data: 'action:start_task' }],
+    [{ text: '🔁 Повторити задачу', callback_data: 'action:recent_tasks' }],
+    [
+      { text: '⏸️ Пауза', callback_data: 'action:pause_task' },
+      { text: '▶️ Відновити', callback_data: 'action:resume_task' },
+    ],
+    [{ text: '✅ Завершити задачу', callback_data: 'action:complete_task' }],
     [{ text: '📊 Моя активність', callback_data: 'action:my_activity' }],
   ],
 };
@@ -36,7 +39,7 @@ export function buildEmployeeMainMenu(telegramId: number): InlineKeyboardMarkup 
   return {
     inline_keyboard: [
       ...EMPLOYEE_MAIN_MENU.inline_keyboard,
-      [{ text: '⏱ Відкрити таймер', web_app: { url: `https://udo-work.vercel.app/app?tid=${telegramId}` } }],
+      [{ text: '⏱️ Відкрити таймер', web_app: { url: `https://udo-work.vercel.app/app?tid=${telegramId}` } }],
     ],
   };
 }
@@ -44,11 +47,16 @@ export function buildEmployeeMainMenu(telegramId: number): InlineKeyboardMarkup 
 /** Main menu shown to admins (static fallback without dashboard link). */
 export const ADMIN_MAIN_MENU: InlineKeyboardMarkup = {
   inline_keyboard: [
-    [{ text: '+ Створити проєкт', callback_data: 'action:create_project' }],
-    [{ text: '○ Деактивувати проєкт', callback_data: 'action:deactivate_project' }],
+    [
+      { text: '➕ Створити проєкт', callback_data: 'action:create_project' },
+      { text: '🔗 Запросити', callback_data: 'action:invite_to_project' },
+    ],
+    [
+      { text: '🟢 Активувати / 🔴 Деактивувати', callback_data: 'action:deactivate_project' },
+    ],
     [{ text: '👥 Команда', callback_data: 'action:employees' }],
     [{ text: '📋 Задачі та логи', callback_data: 'action:tasks_logs' }],
-    [{ text: '⚙ Управління користувачами', callback_data: 'action:manage_admins' }],
+    [{ text: '⚙️ Управління користувачами', callback_data: 'action:manage_admins' }],
   ],
 };
 
@@ -67,20 +75,26 @@ export function buildAdminMainMenu(telegramId: number): InlineKeyboardMarkup {
 /** Admin management keyboard. */
 export const MANAGE_USERS_KEYBOARD: InlineKeyboardMarkup = {
   inline_keyboard: [
-    [{ text: '+ Додати адміна', callback_data: 'action:add_admin' }],
-    [{ text: '+ Додати співробітника', callback_data: 'action:add_employee' }],
-    [{ text: '− Видалити адміна', callback_data: 'action:remove_admin' }],
-    [{ text: '− Видалити співробітника', callback_data: 'action:remove_employee' }],
-    [{ text: '← Назад', callback_data: 'action:back_to_main' }],
+    [
+      { text: '➕ Додати адміна', callback_data: 'action:add_admin' },
+      { text: '➕ Додати співробітника', callback_data: 'action:add_employee' },
+    ],
+    [
+      { text: '🗑️ Видалити адміна', callback_data: 'action:remove_admin' },
+      { text: '🗑️ Видалити співробітника', callback_data: 'action:remove_employee' },
+    ],
+    [{ text: '◀️ Назад', callback_data: 'action:back_to_main' }],
   ],
 };
 
 /** Period selector for activity report. */
 export const ACTIVITY_PERIOD_KEYBOARD: InlineKeyboardMarkup = {
   inline_keyboard: [
-    [{ text: 'Сьогодні', callback_data: 'period:today' }],
-    [{ text: 'Цей тиждень', callback_data: 'period:week' }],
-    [{ text: '← Назад', callback_data: 'action:back_to_main' }],
+    [
+      { text: '📅 Сьогодні', callback_data: 'period:today' },
+      { text: '📆 Цей тиждень', callback_data: 'period:week' },
+    ],
+    [{ text: '◀️ Назад', callback_data: 'action:back_to_main' }],
   ],
 };
 
@@ -88,21 +102,42 @@ export const ACTIVITY_PERIOD_KEYBOARD: InlineKeyboardMarkup = {
 export const DELIVERABLE_CHOICE_KEYBOARD: InlineKeyboardMarkup = {
   inline_keyboard: [
     [{ text: '📎 Прикріпити результат', callback_data: 'deliverable:yes' }],
-    [{ text: 'Пропустити', callback_data: 'deliverable:skip' }],
+    [{ text: '⏭️ Пропустити', callback_data: 'deliverable:skip' }],
   ],
 };
 
 /** Shown after each deliverable is saved. */
 export const ADD_MORE_KEYBOARD: InlineKeyboardMarkup = {
   inline_keyboard: [
-    [{ text: '+ Додати ще', callback_data: 'deliverable:add_more' }],
-    [{ text: '✓ Завершити', callback_data: 'deliverable:finish' }],
+    [{ text: '➕ Додати ще', callback_data: 'deliverable:add_more' }],
+    [{ text: '✅ Завершити', callback_data: 'deliverable:finish' }],
   ],
 };
 
 // ---------------------------------------------------------------------------
 // Dynamic keyboard builders
 // ---------------------------------------------------------------------------
+
+/**
+ * Builds a keyboard listing all projects with toggle status buttons.
+ */
+export function buildToggleProjectKeyboard(
+  projects: Project[],
+  backAction = 'action:back_to_main',
+): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      ...projects.map((p) => {
+        const icon = p.is_active ? '🟢' : '🔴';
+        const action = p.is_active ? 'Деактивувати' : 'Активувати';
+        return [
+          { text: `${icon} ${p.name} — ${action}`, callback_data: `project:${p.id}` },
+        ];
+      }),
+      [{ text: '◀️ Назад', callback_data: backAction }],
+    ],
+  };
+}
 
 /**
  * Builds a keyboard listing active projects for task-start selection.
@@ -116,15 +151,15 @@ export function buildProjectKeyboard(
   return {
     inline_keyboard: [
       ...projects.map((p) => [
-        { text: p.name, callback_data: `${callbackPrefix}:${p.id}` },
+        { text: `📁 ${p.name}`, callback_data: `${callbackPrefix}:${p.id}` },
       ]),
-      [{ text: '← Назад', callback_data: backAction }],
+      [{ text: '◀️ Назад', callback_data: backAction }],
     ],
   };
 }
 
 /**
- * Builds a keyboard listing employees.
+ * Builds a keyboard listing employees with action buttons.
  * Requirements: 9.1
  */
 export function buildEmployeeListKeyboard(
@@ -135,15 +170,14 @@ export function buildEmployeeListKeyboard(
     inline_keyboard: [
       ...employees.map((e) => {
         const name = e.first_name ?? (e.username ? `@${e.username}` : `ID ${e.telegram_id}`);
-        const suffix = e.username && e.first_name ? ` (@${e.username})` : '';
-        const rateLabel = e.hourly_rate ? ` · ${e.hourly_rate}₴/год` : '';
+        const rateLabel = e.hourly_rate ? ` · 💰${e.hourly_rate}₴` : '';
         return [
-          { text: `${name}${suffix}${rateLabel}`, callback_data: `employee:${e.id}` },
-          { text: '✎', callback_data: `edit_employee:${e.id}` },
-          { text: '₴', callback_data: `edit_rate:${e.id}` },
+          { text: `👤 ${name}${rateLabel}`, callback_data: `employee:${e.id}` },
+          { text: '✏️', callback_data: `edit_employee:${e.id}` },
+          { text: '💵', callback_data: `edit_rate:${e.id}` },
         ];
       }),
-      [{ text: '← Назад', callback_data: backAction }],
+      [{ text: '◀️ Назад', callback_data: backAction }],
     ],
   };
 }
@@ -159,9 +193,9 @@ export function buildTaskListKeyboard(
   return {
     inline_keyboard: [
       ...tasks.map((t) => [
-        { text: t.name, callback_data: `task:${t.id}` },
+        { text: `📌 ${t.name}`, callback_data: `task:${t.id}` },
       ]),
-      [{ text: '← Назад', callback_data: backAction }],
+      [{ text: '◀️ Назад', callback_data: backAction }],
     ],
   };
 }
@@ -178,10 +212,10 @@ export function buildPaginationKeyboard(
   const buttons: { text: string; callback_data: string }[] = [];
 
   if (page > 0) {
-    buttons.push({ text: `← Стор. ${page}`, callback_data: `page:${prefix}:${page - 1}` });
+    buttons.push({ text: `⬅️ Стор. ${page}`, callback_data: `page:${prefix}:${page - 1}` });
   }
   if (page < totalPages - 1) {
-    buttons.push({ text: `Стор. ${page + 2} →`, callback_data: `page:${prefix}:${page + 1}` });
+    buttons.push({ text: `Стор. ${page + 2} ➡️`, callback_data: `page:${prefix}:${page + 1}` });
   }
 
   return { inline_keyboard: buttons.length > 0 ? [buttons] : [] };
@@ -194,10 +228,10 @@ export function buildPaginationKeyboard(
 export function buildFilterKeyboard(): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
-      [{ text: 'Всі задачі', callback_data: 'filter:all' }],
-      [{ text: 'За проєктом', callback_data: 'filter:by_project' }],
-      [{ text: 'За співробітником', callback_data: 'filter:by_employee' }],
-      [{ text: '← Назад', callback_data: 'action:back_to_main' }],
+      [{ text: '📋 Всі задачі', callback_data: 'filter:all' }],
+      [{ text: '📁 За проєктом', callback_data: 'filter:by_project' }],
+      [{ text: '👤 За співробітником', callback_data: 'filter:by_employee' }],
+      [{ text: '◀️ Назад', callback_data: 'action:back_to_main' }],
     ],
   };
 }
@@ -210,9 +244,9 @@ export function buildAdminListKeyboard(admins: User[]): InlineKeyboardMarkup {
     inline_keyboard: [
       ...admins.map((a) => {
         const label = a.first_name ?? (a.username ? `@${a.username}` : String(a.telegram_id));
-        return [{ text: `Видалити: ${label}`, callback_data: `remove_admin:${a.id}` }];
+        return [{ text: `🗑️ ${label}`, callback_data: `remove_admin:${a.id}` }];
       }),
-      [{ text: '← Назад', callback_data: 'action:manage_admins' }],
+      [{ text: '◀️ Назад', callback_data: 'action:manage_admins' }],
     ],
   };
 }
@@ -225,9 +259,9 @@ export function buildEmployeeRemoveKeyboard(employees: User[]): InlineKeyboardMa
     inline_keyboard: [
       ...employees.map((e) => {
         const label = e.first_name ?? (e.username ? `@${e.username}` : String(e.telegram_id));
-        return [{ text: `Видалити: ${label}`, callback_data: `remove_employee:${e.id}` }];
+        return [{ text: `🗑️ ${label}`, callback_data: `remove_employee:${e.id}` }];
       }),
-      [{ text: '← Назад', callback_data: 'action:manage_admins' }],
+      [{ text: '◀️ Назад', callback_data: 'action:manage_admins' }],
     ],
   };
 }
@@ -238,9 +272,11 @@ export function buildEmployeeRemoveKeyboard(employees: User[]): InlineKeyboardMa
 export function buildInviteRoleKeyboard(projectId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
-      [{ text: 'Співробітник', callback_data: `invite_role:${projectId}:employee` }],
-      [{ text: 'Адмін', callback_data: `invite_role:${projectId}:admin` }],
-      [{ text: '← Назад', callback_data: 'action:invite_to_project' }],
+      [
+        { text: '👷 Співробітник', callback_data: `invite_role:${projectId}:employee` },
+        { text: '🔑 Адмін', callback_data: `invite_role:${projectId}:admin` },
+      ],
+      [{ text: '◀️ Назад', callback_data: 'action:invite_to_project' }],
     ],
   };
 }
@@ -253,12 +289,12 @@ export function buildRecentTasksKeyboard(
   page: number,
   totalPages: number,
 ): InlineKeyboardMarkup {
-  const rows = tasks.map((t) => [{ text: t.name, callback_data: `reuse_task:${t.id}` }]);
+  const rows = tasks.map((t) => [{ text: `🔁 ${t.name}`, callback_data: `reuse_task:${t.id}` }]);
   const nav: { text: string; callback_data: string }[] = [];
-  if (page > 0) nav.push({ text: `← Стор. ${page}`, callback_data: `recent_page:${page - 1}` });
-  if (page < totalPages - 1) nav.push({ text: `Стор. ${page + 2} →`, callback_data: `recent_page:${page + 1}` });
+  if (page > 0) nav.push({ text: `⬅️ Стор. ${page}`, callback_data: `recent_page:${page - 1}` });
+  if (page < totalPages - 1) nav.push({ text: `Стор. ${page + 2} ➡️`, callback_data: `recent_page:${page + 1}` });
   if (nav.length > 0) rows.push(nav);
-  rows.push([{ text: '← Назад', callback_data: 'action:back_to_main' }]);
+  rows.push([{ text: '◀️ Назад', callback_data: 'action:back_to_main' }]);
   return { inline_keyboard: rows };
 }
 
@@ -271,8 +307,8 @@ export function buildRecentTasksKeyboard(
  */
 export const EMPLOYEE_REPLY_KEYBOARD: ReplyKeyboardMarkup = {
   keyboard: [
-    [{ text: '▶ Почати задачу' }, { text: '✓ Завершити задачу' }],
-    [{ text: '⏸ Пауза' }, { text: '▶ Відновити' }],
+    [{ text: '🚀 Почати задачу' }, { text: '✅ Завершити задачу' }],
+    [{ text: '⏸️ Пауза' }, { text: '▶️ Відновити' }],
     [{ text: '📊 Моя активність' }],
   ],
   resize_keyboard: true,
@@ -283,9 +319,9 @@ export const EMPLOYEE_REPLY_KEYBOARD: ReplyKeyboardMarkup = {
  */
 export const ADMIN_REPLY_KEYBOARD: ReplyKeyboardMarkup = {
   keyboard: [
-    [{ text: '+ Створити проєкт' }, { text: '○ Деактивувати проєкт' }],
+    [{ text: '➕ Створити проєкт' }, { text: '🔴 Деактивувати проєкт' }],
     [{ text: '👥 Команда' }, { text: '📋 Задачі та логи' }],
-    [{ text: '⚙ Управління користувачами' }, { text: '🔗 Запросити до проєкту' }],
+    [{ text: '⚙️ Управління користувачами' }, { text: '🔗 Запросити до проєкту' }],
   ],
   resize_keyboard: true,
 };
