@@ -97,7 +97,7 @@ function formatTotalTime(totalMinutes: number): string {
 
 function AdminRedirectView({ name, telegramId }: { name: string; telegramId: number }) {
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center px-6 gap-6">
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center px-6 gap-6" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <div className="text-5xl">🛡️</div>
       <div className="text-center">
         <div className="text-lg font-bold mb-1">{name}</div>
@@ -435,7 +435,7 @@ export default function AppPage() {
         </div>
       )}
 
-      <main className="flex-1 flex flex-col items-center px-4 pt-4 pb-6 gap-6">
+      <main className="flex-1 flex flex-col items-center px-4 pt-4 pb-6 gap-6" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
 
         {/* ------------------------------------------------------------------ */}
         {/* POMODORO MODE */}
