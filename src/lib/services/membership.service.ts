@@ -181,8 +181,8 @@ export const membershipService: MembershipService = {
       .insert({ token, project_id: projectId, role, created_by: createdBy, expires_at: expiresAt });
 
     if (error) {
-      logger.error('MembershipService.createInviteLink failed', error);
-      throw new DatabaseError('Failed to create invite token');
+      logger.error('MembershipService.createInviteLink failed', { error, projectId, role, createdBy });
+      throw new DatabaseError(`Failed to create invite token: ${error.message} (code: ${error.code})`);
     }
 
     const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? 'udoworkbot';

@@ -917,6 +917,11 @@ export async function handleGenerateInviteLink(ctx: HandlerContext, projectId: s
       { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
     );
   } catch (err) {
-    await sendDbError(chatId, err);
+    logger.error('handleGenerateInviteLink error', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    await telegramClient.sendMessage(chatId,
+      `⚠️ *Помилка генерації посилання*\n\n\`${msg}\``,
+      { parse_mode: 'Markdown', reply_markup: ADMIN_MAIN_MENU },
+    );
   }
 }
