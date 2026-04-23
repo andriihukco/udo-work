@@ -189,17 +189,20 @@ export const storageService: StorageService = {
   },
 
   /**
-   * Inserts an attachments row with type = 'file' and content = url.
-   * The fileName is embedded in the URL path so it does not need a separate column.
+   * Inserts an attachments row with type = 'file'.
+   * Content is stored as "filename\nurl" so the filename can be recovered
+   * without a schema change. The URL is the signed Supabase Storage URL.
    * Requirement 7.2
    */
-  async saveFileAttachment(taskId: string, url: string, _fileName: string): Promise<Attachment> {
+  async saveFileAttachment(taskId: string, url: string, fileName: string): Promise<Attachment> {
+    // Encode as "filename\nurl" — newline is safe since filenames never contain \n
+    const content = `${fileName}\n${url}`;
     const { data, error } = await supabase
       .from('attachments')
       .insert({
         task_id: taskId,
         type: 'file',
-        content: url,
+        content,
       })
       .select('id, task_id, type, content, created_at')
       .single();

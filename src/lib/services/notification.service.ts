@@ -60,6 +60,40 @@ function getDisplayName(user: User): string {
 }
 
 /**
+ * Formats a single attachment for a Telegram Markdown message.
+ *
+ * - text attachments: rendered inline as plain text (comments, notes)
+ * - file attachments: stored as "filename\nurl"; rendered as a Telegram
+ *   inline hyperlink [label](url) so the URL is hidden and the message
+ *   stays readable. Images get a 🖼 prefix, other files get 📎.
+ *
+ * Falls back gracefully for legacy rows that stored only a bare URL.
+ */
+function formatAttachment(a: Attachment, index: number): string {
+  if (a.type === 'text') {
+    return `  ${index + 1}\\. 📝 ${a.content}`;
+  }
+
+  // File attachment: content is "filename\nurl" (new format)
+  // or a bare URL (legacy rows before this change)
+  const newlineIdx = a.content.indexOf('\n');
+  if (newlineIdx === -1) {
+    // Legacy: bare URL — show as hyperlink with generic label
+    return `  ${index + 1}\\. [📎 Файл](${a.content})`;
+  }
+
+  const fileName = a.content.slice(0, newlineIdx).trim();
+  const url = a.content.slice(newlineIdx + 1).trim();
+
+  const isImage = /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(fileName);
+  const icon = isImage ? '🖼' : '📎';
+  // Escape any parentheses in the filename for Markdown link syntax
+  const safeLabel = fileName.replace(/[()]/g, '\\$&');
+
+  return `  ${index + 1}\\. [${icon} ${safeLabel}](${url})`;
+}
+
+/**
  * Fetches all users with role = 'admin' from the database.
  * Throws DatabaseError on query failure.
  */
@@ -81,11 +115,13 @@ async function fetchAdmins(): Promise<User[]> {
  * Sends a message to a single admin, catching and logging TelegramApiError
  * without rethrowing (Req 11.4).
  */
-async function sendToAdmin(admin: User, text: string): Promise<void> {
+async function sendToAdmin(
+  admin: User,
+  text: string,
+  options: Record<string, unknown> = { parse_mode: 'Markdown' },
+): Promise<void> {
   try {
-    await telegramClient.sendNotification(admin.telegram_id, text, {
-      parse_mode: 'Markdown',
-    });
+    await telegramClient.sendNotification(admin.telegram_id, text, options);
   } catch (err) {
     if (err instanceof TelegramApiError) {
       logger.error(
@@ -136,6 +172,7 @@ export const notificationService: NotificationService = {
   /**
    * Fetches all admins and sends each a task-completed notification.
    * Includes attachment list when non-empty.
+   * File attachments are rendered as inline hyperlinks to keep messages short.
    * Req 11.2, 11.3
    */
   async notifyTaskCompleted(
@@ -154,26 +191,25 @@ export const notificationService: NotificationService = {
 
     const employeeName = getDisplayName(employee);
 
+    // Escape special MarkdownV2 chars in plain-text fields
+    const esc2 = (s: string) => s.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&');
+
     let text =
       `✅ *Задачу завершено*\n\n` +
-      `👤 *Співробітник:* ${employeeName}\n` +
-      `📌 *Задача:* ${task.name}\n` +
-      `📁 *Проєкт:* ${project.name}\n` +
-      `⏱ *Витрачено часу:* ${formatTimeSpent(totalTime)}`;
+      `👤 *Співробітник:* ${esc2(employeeName)}\n` +
+      `📌 *Задача:* ${esc2(task.name)}\n` +
+      `📁 *Проєкт:* ${esc2(project.name)}\n` +
+      `⏱ *Витрачено часу:* ${esc2(formatTimeSpent(totalTime))}`;
 
     if (attachments.length > 0) {
-      const attachmentLines = attachments
-        .map((a, i) => {
-          if (a.type === 'text') {
-            return `  ${i + 1}. 📝 ${a.content}`;
-          }
-          return `  ${i + 1}. 📎 ${a.content}`;
-        })
-        .join('\n');
-
-      text += `\n\n📋 *Результати (${attachments.length}):*\n${attachmentLines}`;
+      const lines = attachments.map((a, i) => formatAttachment(a, i)).join('\n');
+      text += `\n\n📋 *Результати \\(${attachments.length}\\):*\n${lines}`;
     }
 
-    await Promise.all(admins.map((admin) => sendToAdmin(admin, text)));
+    await Promise.all(
+      admins.map((admin) =>
+        sendToAdmin(admin, text, { parse_mode: 'MarkdownV2' }),
+      ),
+    );
   },
 };

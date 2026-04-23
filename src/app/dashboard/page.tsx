@@ -1,6 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import {
+  Users, FolderOpen, Zap, CheckCircle2, Clock, Play, Pause,
+  Check, Trash2, Pencil, Banknote, Plus, Search, RefreshCw,
+  Lock, ToggleLeft, ToggleRight, User, List,
+  History, Timer, ClipboardCheck, X, AlertTriangle,
+  WifiOff, BarChart3, KeyRound, TrendingUp, Activity,
+  ShieldCheck, ChevronRight, Briefcase,
+} from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,6 +92,29 @@ const HEADERS = { 'Content-Type': 'application/json', 'x-dashboard-secret': SECR
 
 type Tab = 'overview' | 'team' | 'projects' | 'tasks' | 'admins';
 
+// ─── Retry helper ─────────────────────────────────────────────────────────────
+
+async function fetchWithRetry(
+  input: RequestInfo,
+  init?: RequestInit,
+  retries = 2,
+  delayMs = 1000,
+): Promise<Response> {
+  let lastError: Error = new Error('Unknown error');
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(input, init);
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastError;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTime(minutes: number): string {
@@ -101,6 +132,10 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+function fmtDateTime(d: Date): string {
+  return d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 function displayName(u: DashUser | EmpStat): string {
   if ('first_name' in u) {
     return u.first_name ?? (u.username ? `@${u.username}` : `ID ${u.telegram_id}`);
@@ -108,40 +143,179 @@ function displayName(u: DashUser | EmpStat): string {
   return u.name;
 }
 
-// Material Symbol icon component
-function Icon({ name, className = '' }: { name: string; className?: string }) {
-  return <span className={`ms ${className}`}>{name}</span>;
+// ─── Icon component (Lucide) ─────────────────────────────────────────────────
+
+// Centralised icon map — add entries here as needed
+const ICONS = {
+  users: Users,
+  folder: FolderOpen,
+  zap: Zap,
+  'check-circle': CheckCircle2,
+  clock: Clock,
+  play: Play,
+  pause: Pause,
+  check: Check,
+  trash: Trash2,
+  edit: Pencil,
+  money: Banknote,
+  plus: Plus,
+  search: Search,
+  refresh: RefreshCw,
+  lock: Lock,
+  'toggle-on': ToggleRight,
+  'toggle-off': ToggleLeft,
+  person: User,
+  list: List,
+  history: History,
+  timer: Timer,
+  task: ClipboardCheck,
+  x: X,
+  alert: AlertTriangle,
+  'wifi-off': WifiOff,
+  chart: BarChart3,
+  key: KeyRound,
+  trending: TrendingUp,
+  activity: Activity,
+  shield: ShieldCheck,
+  chevron: ChevronRight,
+  briefcase: Briefcase,
+} as const;
+
+type IconName = keyof typeof ICONS;
+
+function Ic({
+  name,
+  size = 18,
+  className = '',
+}: {
+  name: IconName;
+  size?: number;
+  className?: string;
+}) {
+  const Component = ICONS[name];
+  return <Component size={size} className={`flex-shrink-0 ${className}`} aria-hidden="true" />;
 }
 
-function statusBadge(status: TaskStat['status']): JSX.Element {
-  if (status === 'in_progress') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-      В роботі
-    </span>
-  );
-  if (status === 'paused') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-      <Icon name="pause" className="ms-16" />
-      Пауза
-    </span>
-  );
+// ─── Skeleton Loaders ─────────────────────────────────────────────────────────
+
+function SkeletonLine({ width = 'w-full', height = 'h-4' }: { width?: string; height?: string }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-      <Icon name="check_circle" className="ms-16" />
+    <div className={`${width} ${height} bg-gray-200 rounded animate-pulse`} />
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="bg-white rounded-2xl px-4 py-3 shadow-sm space-y-2">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-gray-200 animate-pulse flex-shrink-0" />
+        <div className="flex-1 space-y-2">
+          <SkeletonLine width="w-2/3" height="h-4" />
+          <SkeletonLine width="w-1/3" height="h-3" />
+        </div>
+        <SkeletonLine width="w-12" height="h-4" />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonList({ count = 4 }: { count?: number }) {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonCard key={i} />
+      ))}
+    </div>
+  );
+}
+
+function SkeletonStatCards() {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="rounded-2xl p-4 bg-gray-100 animate-pulse space-y-2">
+          <div className="w-8 h-8 rounded-lg bg-gray-200" />
+          <div className="h-7 w-12 bg-gray-200 rounded" />
+          <div className="h-3 w-20 bg-gray-200 rounded" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Error State ──────────────────────────────────────────────────────────────
+
+interface ErrorStateProps {
+  endpoint: string;
+  message: string;
+  isNetwork?: boolean;
+  onRetry: () => void;
+  errorTime?: Date;
+}
+
+function ErrorState({ endpoint, message, isNetwork = false, onRetry, errorTime }: ErrorStateProps) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-4 ${isNetwork ? 'bg-orange-100 text-orange-500' : 'bg-red-100 text-red-500'}`}>
+        <Ic name={isNetwork ? 'wifi-off' : 'alert'} size={28} />
+      </div>
+      <h3 className="text-base font-semibold text-gray-800 mb-1">
+        {isNetwork ? 'Немає з\'єднання' : 'Помилка сервера'}
+      </h3>
+      <p className="text-sm text-gray-500 mb-1">{message}</p>
+      <p className="text-xs text-gray-400 mb-5">
+        <span className="font-mono">{endpoint}</span>
+        {errorTime && <> · {fmtDateTime(errorTime)}</>}
+      </p>
+      <button
+        onClick={onRetry}
+        className="inline-flex items-center gap-2 bg-blue-600 active:bg-blue-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+      >
+        <Ic name="refresh" size={15} />
+        Спробувати ще раз
+      </button>
+    </div>
+  );
+}
+
+// ─── Empty State ──────────────────────────────────────────────────────────────
+
+function EmptyState({ icon, title, hint }: { icon: IconName; title: string; hint?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-14 px-4 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4 text-gray-400">
+        <Ic name={icon} size={28} />
+      </div>
+      <p className="text-sm font-semibold text-gray-700 mb-1">{title}</p>
+      {hint && <p className="text-xs text-gray-400 max-w-xs leading-relaxed">{hint}</p>}
+    </div>
+  );
+}
+
+// ─── Status Badge ─────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: TaskStat['status'] }) {
+  if (status === 'in_progress') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
+        В роботі
+      </span>
+    );
+  }
+  if (status === 'paused') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+        Пауза
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+      <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
       Завершено
     </span>
-  );
-}
-// orphaned lines removed
-
-// ─── Spinner ──────────────────────────────────────────────────────────────────
-
-function Spinner() {
-  return (
-    <div className="flex items-center justify-center py-12">
-      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-    </div>
   );
 }
 
@@ -156,10 +330,19 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       <div
         className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          <h3 id="modal-title" className="text-lg font-semibold text-gray-800">{title}</h3>
+          <button
+            onClick={onClose}
+            className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 transition-colors"
+            aria-label="Закрити"
+          >
+            <Ic name="x" size={18} />
+          </button>
         </div>
         {children}
       </div>
@@ -167,7 +350,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-// ─── Add/Edit User Modal ──────────────────────────────────────────────────────
+// ─── User Modal ───────────────────────────────────────────────────────────────
 
 interface UserModalProps {
   defaultRole?: 'admin' | 'employee';
@@ -192,15 +375,10 @@ function UserModal({ defaultRole = 'employee', editUser, onClose, onSave }: User
     if (!isEdit && !telegramId) { setErr('Введіть Telegram ID'); return; }
     setSaving(true);
     try {
-      await onSave({
-        telegramId: isEdit ? undefined : Number(telegramId),
-        firstName,
-        username,
-        role,
-      });
+      await onSave({ telegramId: isEdit ? undefined : Number(telegramId), firstName, username, role });
       onClose();
     } catch (e: any) {
-      setErr(e.message ?? 'Помилка');
+      setErr(e.message ?? 'Помилка збереження');
     } finally {
       setSaving(false);
     }
@@ -211,44 +389,46 @@ function UserModal({ defaultRole = 'employee', editUser, onClose, onSave }: User
       <form onSubmit={handleSubmit} className="space-y-3">
         {!isEdit && (
           <div>
-            <label className="block text-sm text-gray-600 mb-1">Telegram ID *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Telegram ID *</label>
             <input
               type="number"
               value={telegramId}
               onChange={(e) => setTelegramId(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="123456789"
+              autoFocus
             />
           </div>
         )}
         <div>
-          <label className="block text-sm text-gray-600 mb-1">Ім'я</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Ім'я</label>
           <input
             type="text"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             placeholder="Іван"
+            autoFocus={isEdit}
           />
         </div>
         {!isEdit && (
           <>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Username</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 placeholder="ivan_ua"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Роль</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Роль</label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as 'admin' | 'employee')}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
               >
                 <option value="employee">Співробітник</option>
                 <option value="admin">Адмін</option>
@@ -256,11 +436,16 @@ function UserModal({ defaultRole = 'employee', editUser, onClose, onSave }: User
             </div>
           </>
         )}
-        {err && <p className="text-red-500 text-sm">{err}</p>}
+        {err && (
+          <div className="flex items-center gap-2 text-red-600 bg-red-50 rounded-xl px-3 py-2.5">
+            <Ic name="alert" size={15} className="flex-shrink-0 text-red-500" />
+            <p className="text-sm">{err}</p>
+          </div>
+        )}
         <button
           type="submit"
           disabled={saving}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg text-sm transition-colors"
+          className="w-full bg-blue-600 active:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-colors"
         >
           {saving ? 'Збереження...' : 'Зберегти'}
         </button>
@@ -269,7 +454,7 @@ function UserModal({ defaultRole = 'employee', editUser, onClose, onSave }: User
   );
 }
 
-// ─── Create Project Modal ─────────────────────────────────────────────────────
+// ─── Project Modal ────────────────────────────────────────────────────────────
 
 function ProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (name: string) => Promise<void> }) {
   const [name, setName] = useState('');
@@ -278,13 +463,13 @@ function ProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (name:
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) { setErr('Введіть назву'); return; }
+    if (!name.trim()) { setErr('Введіть назву проєкту'); return; }
     setSaving(true);
     try {
       await onSave(name.trim());
       onClose();
     } catch (e: any) {
-      setErr(e.message ?? 'Помилка');
+      setErr(e.message ?? 'Помилка створення');
     } finally {
       setSaving(false);
     }
@@ -294,23 +479,28 @@ function ProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (name:
     <Modal title="Новий проєкт" onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
-          <label className="block text-sm text-gray-600 mb-1">Назва проєкту *</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Назва проєкту *</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             placeholder="Назва проєкту"
             autoFocus
           />
         </div>
-        {err && <p className="text-red-500 text-sm">{err}</p>}
+        {err && (
+          <div className="flex items-center gap-2 text-red-600 bg-red-50 rounded-xl px-3 py-2.5">
+            <Ic name="alert" size={15} className="flex-shrink-0 text-red-500" />
+            <p className="text-sm">{err}</p>
+          </div>
+        )}
         <button
           type="submit"
           disabled={saving}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 rounded-lg text-sm transition-colors"
+          className="w-full bg-blue-600 active:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-colors"
         >
-          {saving ? 'Створення...' : 'Створити'}
+          {saving ? 'Створення...' : 'Створити проєкт'}
         </button>
       </form>
     </Modal>
@@ -322,87 +512,100 @@ function ProjectModal({ onClose, onSave }: { onClose: () => void; onSave: (name:
 function OverviewTab({ stats }: { stats: StatsData }) {
   const { summary, employees, recentTasks } = stats;
 
-  const statCards = [
-    { label: 'Співробітники', value: summary.totalEmployees, icon: '👥', color: 'bg-blue-50 text-blue-600' },
-    { label: 'Активні проєкти', value: summary.activeProjects, icon: '📁', color: 'bg-green-50 text-green-600' },
-    { label: 'В роботі зараз', value: summary.inProgressTasks, icon: '⚡', color: 'bg-yellow-50 text-yellow-600' },
-    { label: 'Завершено цього тижня', value: summary.completedThisWeek, icon: '✅', color: 'bg-purple-50 text-purple-600' },
+  const statCards: { label: string; value: number; icon: IconName; bg: string; fg: string; border: string }[] = [
+    { label: 'Співробітники',        value: summary.totalEmployees,    icon: 'users',         bg: 'bg-blue-50',    fg: 'text-blue-600',   border: 'border-blue-100' },
+    { label: 'Активні проєкти',      value: summary.activeProjects,    icon: 'folder',        bg: 'bg-emerald-50', fg: 'text-emerald-600', border: 'border-emerald-100' },
+    { label: 'В роботі зараз',       value: summary.inProgressTasks,   icon: 'zap',           bg: 'bg-amber-50',   fg: 'text-amber-600',  border: 'border-amber-100' },
+    { label: 'Завершено цього тижня', value: summary.completedThisWeek, icon: 'check-circle',  bg: 'bg-purple-50',  fg: 'text-purple-600', border: 'border-purple-100' },
   ];
 
   const top5 = [...employees].sort((a, b) => b.weeklyMinutes - a.weeklyMinutes).slice(0, 5);
   const activeTasks = recentTasks.filter((t) => t.status === 'in_progress');
 
   return (
-    <div className="space-y-6">
-      {/* Stat cards 2x2 */}
+    <div className="space-y-5">
+      {/* Stat cards 2×2 */}
       <div className="grid grid-cols-2 gap-3">
         {statCards.map((c) => (
-          <div key={c.label} className={`rounded-2xl p-4 ${c.color.split(' ')[0]}`}>
-            <div className="text-2xl mb-1">{c.icon}</div>
-            <div className={`text-2xl font-bold ${c.color.split(' ')[1]}`}>{c.value}</div>
-            <div className="text-xs text-gray-500 mt-0.5">{c.label}</div>
+          <div key={c.label} className={`rounded-2xl p-4 border ${c.bg} ${c.border}`}>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 bg-white/70 ${c.fg}`}>
+              <Ic name={c.icon} size={18} />
+            </div>
+            <div className={`text-2xl font-bold tracking-tight ${c.fg}`}>{c.value}</div>
+            <div className="text-xs text-gray-500 mt-0.5 leading-tight font-medium">{c.label}</div>
           </div>
         ))}
       </div>
 
       {/* Top employees */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Топ-5 за тиждень</h2>
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <Ic name="trending" size={14} className="text-gray-400" />
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Топ-5 за тиждень</h2>
+        </div>
         {top5.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">Немає даних</p>
+          <EmptyState icon="clock" title="Немає даних за цей тиждень" hint="Дані з'являться після того, як співробітники почнуть відстежувати час." />
         ) : (
           <div className="space-y-2">
             {top5.map((emp, i) => (
-              <div key={emp.id} className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 shadow-sm">
-                <span className="text-sm font-bold text-gray-400 w-5">{i + 1}</span>
-                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-sm flex-shrink-0">
+              <div key={emp.id} className="flex items-center gap-3 bg-white rounded-2xl px-4 py-3 shadow-sm">
+                <span className="text-xs font-bold text-gray-300 w-4 text-center tabular-nums">{i + 1}</span>
+                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm flex-shrink-0">
                   {emp.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{emp.name}</p>
+                  <p className="text-sm font-semibold text-gray-800 truncate">{emp.name}</p>
                   {emp.username && <p className="text-xs text-gray-400">@{emp.username}</p>}
                 </div>
-                <div className="text-right">
-                  <div className="text-sm font-semibold text-blue-600">{fmtTime(emp.weeklyMinutes)}</div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-sm font-bold text-blue-600 tabular-nums">{fmtTime(emp.weeklyMinutes)}</div>
                   {emp.hourlyRate && emp.weeklyMinutes > 0 && (
-                    <div className="text-xs text-green-600">{Math.round((emp.weeklyMinutes / 60) * emp.hourlyRate)}₴</div>
+                    <div className="text-xs text-emerald-600 font-medium">{Math.round((emp.weeklyMinutes / 60) * emp.hourlyRate)}₴</div>
                   )}
                 </div>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </section>
 
       {/* Active tasks */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Активні задачі</h2>
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <Ic name="activity" size={14} className="text-gray-400" />
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Активні задачі</h2>
+        </div>
         {activeTasks.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">Немає активних задач</p>
+          <EmptyState icon="task" title="Немає активних задач" hint="Коли співробітники почнуть роботу, задачі з'являться тут." />
         ) : (
           <div className="space-y-2">
             {activeTasks.slice(0, 10).map((t) => (
-              <div key={t.id} className="bg-white rounded-xl px-4 py-3 shadow-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 truncate">{t.name}</p>
-                  {statusBadge(t.status)}
+              <div key={t.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <p className="text-sm font-semibold text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
+                  <StatusBadge status={t.status} />
                 </div>
-                <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
-                  <span>{t.userName}</span>
-                  <span>·</span>
-                  <span>{t.projectName}</span>
-                  {t.totalMinutes > 0 && (
-                    <>
-                      <span>·</span>
-                      <span className="text-blue-500">{fmtTime(t.totalMinutes + t.activeMinutes)}</span>
-                    </>
+                <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                  <span className="inline-flex items-center gap-1">
+                    <Ic name="person" size={11} />
+                    {t.userName}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Ic name="folder" size={11} />
+                    {t.projectName}
+                  </span>
+                  {(t.totalMinutes + t.activeMinutes) > 0 && (
+                    <span className="text-blue-500 font-semibold inline-flex items-center gap-1">
+                      <Ic name="timer" size={11} />
+                      {fmtTime(t.totalMinutes + t.activeMinutes)}
+                    </span>
                   )}
                 </div>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
@@ -470,14 +673,12 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
     setSaving(true);
     try {
       const rate = editRate.trim() === '' ? null : parseFloat(editRate.replace(',', '.'));
-      const res = await fetch('/api/dashboard/users', {
+      const res = await fetchWithRetry('/api/dashboard/users', {
         method: 'PATCH',
         headers: HEADERS,
         body: JSON.stringify({ id, hourlyRate: rate }),
       });
       if (res.ok) {
-        const json = await res.json();
-        // Update local state
         setEditingRateId(null);
       }
     } finally {
@@ -487,24 +688,42 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
 
   return (
     <div className="space-y-3">
+      {/* Search + Add */}
       <div className="flex items-center gap-2">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Пошук..."
-          className="flex-1 border border-gray-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-        />
+        <div className="relative flex-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+            <Ic name="search" size={16} />
+          </span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Пошук за ім'ям, username, ID..."
+            className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+          />
+        </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex-shrink-0 bg-blue-600 active:bg-blue-700 text-white font-medium px-4 py-3 rounded-xl transition-colors"
+          className="flex-shrink-0 bg-blue-600 active:bg-blue-700 text-white font-semibold px-4 py-3 rounded-xl transition-colors flex items-center gap-1.5"
+          aria-label="Додати співробітника"
         >
-          ➕
+          <Ic name="plus" size={18} />
         </button>
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-8">Співробітників не знайдено</p>
+      {/* Count */}
+      {search && (
+        <p className="text-xs text-gray-400 px-1">{filtered.length} з {employees.length} співробітників</p>
+      )}
+
+      {filtered.length === 0 && !search ? (
+        <EmptyState
+          icon="users"
+          title="Немає співробітників"
+          hint="Натисніть + щоб додати першого співробітника до команди."
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon="search" title="Нічого не знайдено" hint={`Немає співробітників за запитом «${search}»`} />
       ) : (
         <div className="space-y-2">
           {filtered.map((u) => {
@@ -512,6 +731,7 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
             const isEditing = editingId === u.id;
             const isEditingRate = editingRateId === u.id;
             const isConfirming = confirmDelete === u.id;
+
             return (
               <div key={u.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
                 {isEditing ? (
@@ -520,28 +740,60 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                       type="text"
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(u.id); if (e.key === 'Escape') setEditingId(null); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveEdit(u.id);
+                        if (e.key === 'Escape') setEditingId(null);
+                      }}
                       autoFocus
-                      className="flex-1 border border-blue-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      className="flex-1 border border-blue-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                       placeholder="Ім'я"
                     />
-                    <button onClick={() => saveEdit(u.id)} disabled={saving} className="bg-blue-600 active:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium disabled:opacity-50">✓</button>
-                    <button onClick={() => setEditingId(null)} className="bg-gray-100 active:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl">✕</button>
+                    <button
+                      onClick={() => saveEdit(u.id)}
+                      disabled={saving}
+                      className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-xl disabled:opacity-50"
+                      aria-label="Зберегти"
+                    >
+                      <Ic name="check" size={16} />
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-600 rounded-xl"
+                      aria-label="Скасувати"
+                    >
+                      <Ic name="x" size={16} />
+                    </button>
                   </div>
                 ) : isEditingRate ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500 flex-shrink-0">₴/год</span>
+                    <span className="text-sm text-gray-500 flex-shrink-0 font-medium">₴/год</span>
                     <input
                       type="number"
                       value={editRate}
                       onChange={(e) => setEditRate(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') saveRate(u.id); if (e.key === 'Escape') setEditingRateId(null); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveRate(u.id);
+                        if (e.key === 'Escape') setEditingRateId(null);
+                      }}
                       autoFocus
-                      className="flex-1 border border-green-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-400"
+                      className="flex-1 border border-emerald-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
                       placeholder="150"
                     />
-                    <button onClick={() => saveRate(u.id)} disabled={saving} className="bg-green-600 active:bg-green-700 text-white px-4 py-2 rounded-xl font-medium disabled:opacity-50">✓</button>
-                    <button onClick={() => setEditingRateId(null)} className="bg-gray-100 active:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl">✕</button>
+                    <button
+                      onClick={() => saveRate(u.id)}
+                      disabled={saving}
+                      className="w-10 h-10 flex items-center justify-center bg-emerald-600 text-white rounded-xl disabled:opacity-50"
+                      aria-label="Зберегти ставку"
+                    >
+                      <Ic name="check" size={16} />
+                    </button>
+                    <button
+                      onClick={() => setEditingRateId(null)}
+                      className="w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-600 rounded-xl"
+                      aria-label="Скасувати"
+                    >
+                      <Ic name="x" size={16} />
+                    </button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
@@ -552,25 +804,69 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
                       <p className="font-medium text-gray-800 truncate">{displayName(u)}</p>
                       <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5 flex-wrap">
                         {u.username && <span>@{u.username}</span>}
-                        {empStat && empStat.weeklyMinutes > 0 && <span className="text-blue-500 font-medium">{fmtTime(empStat.weeklyMinutes)}</span>}
-                        {u.hourly_rate && <span className="text-green-600 font-medium">{u.hourly_rate}₴/год</span>}
-                        {empStat?.activeTasks ? <span className="text-green-500">● активна</span> : null}
+                        {empStat && empStat.weeklyMinutes > 0 && (
+                          <span className="text-blue-500 font-medium inline-flex items-center gap-0.5">
+                            <Ic name="clock" size={11} />
+                            {fmtTime(empStat.weeklyMinutes)}
+                          </span>
+                        )}
+                        {u.hourly_rate && (
+                          <span className="text-emerald-600 font-medium">{u.hourly_rate}₴/год</span>
+                        )}
+                        {empStat?.activeTasks ? (
+                          <span className="inline-flex items-center gap-1 text-blue-500">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                            активна
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                     {!isConfirming && (
-                      <div className="flex items-center">
-                        <button onClick={() => startEdit(u)} className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-blue-500 rounded-xl active:bg-blue-50">✏️</button>
-                        <button onClick={() => startEditRate(u)} className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-green-500 rounded-xl active:bg-green-50">💰</button>
-                        <button onClick={() => { setConfirmDelete(u.id); setEditingId(null); setEditingRateId(null); }} className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-red-500 rounded-xl active:bg-red-50">🗑</button>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => startEdit(u)}
+                          className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-blue-500 rounded-xl hover:bg-blue-50 transition-colors"
+                          title="Редагувати ім'я"
+                          aria-label="Редагувати ім'я"
+                        >
+                          <Ic name="edit" size={16} />
+                        </button>
+                        <button
+                          onClick={() => startEditRate(u)}
+                          className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-emerald-500 rounded-xl hover:bg-emerald-50 transition-colors"
+                          title="Встановити ставку"
+                          aria-label="Встановити ставку"
+                        >
+                          <Ic name="money" size={16} />
+                        </button>
+                        <button
+                          onClick={() => { setConfirmDelete(u.id); setEditingId(null); setEditingRateId(null); }}
+                          className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
+                          title="Видалити"
+                          aria-label="Видалити співробітника"
+                        >
+                          <Ic name="trash" size={16} />
+                        </button>
                       </div>
                     )}
                   </div>
                 )}
+
                 {isConfirming && (
-                  <div className="mt-2 flex items-center gap-2 justify-end">
-                    <span className="text-sm text-red-600">Видалити?</span>
-                    <button onClick={async () => { await onDelete(u.id); setConfirmDelete(null); }} className="bg-red-500 active:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium">Так</button>
-                    <button onClick={() => setConfirmDelete(null)} className="bg-gray-100 active:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm">Ні</button>
+                  <div className="mt-3 flex items-center gap-2 justify-end border-t border-gray-100 pt-3">
+                    <p className="text-sm text-gray-600 flex-1">Видалити <strong>{displayName(u)}</strong>?</p>
+                    <button
+                      onClick={async () => { await onDelete(u.id); setConfirmDelete(null); }}
+                      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
+                    >
+                      Видалити
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(null)}
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm transition-colors"
+                    >
+                      Скасувати
+                    </button>
                   </div>
                 )}
               </div>
@@ -605,7 +901,7 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
   }
 
   const sorted = [...projects].sort((a, b) => {
-    if (a.is_active === b.is_active) return a.name.localeCompare(b.name);
+    if (a.is_active === b.is_active) return a.name.localeCompare(b.name, 'uk');
     return a.is_active ? -1 : 1;
   });
 
@@ -614,22 +910,31 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
       <div className="flex justify-end">
         <button
           onClick={() => setShowCreate(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
         >
-          ➕ Створити
+          <Ic name="plus" size={16} />
+          Створити проєкт
         </button>
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-8">Проєктів немає</p>
+        <EmptyState
+          icon="folder"
+          title="Немає проєктів"
+          hint="Створіть перший проєкт, щоб почати відстежувати задачі та час."
+        />
       ) : (
         <div className="space-y-2">
           {sorted.map((p) => {
             const pStat = getProjStat(p.id);
             const isConfirming = confirmDelete === p.id;
+
             return (
-              <div key={p.id} className={`bg-white rounded-2xl px-4 py-3 shadow-sm ${!p.is_active ? 'opacity-60' : ''}`}>
+              <div key={p.id} className={`bg-white rounded-2xl px-4 py-3 shadow-sm transition-opacity ${!p.is_active ? 'opacity-60' : ''}`}>
                 <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${p.is_active ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                    <Ic name="folder" size={18} />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-gray-800 truncate">{p.name}</p>
@@ -637,42 +942,61 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
                         <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Неактивний</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
-                      {pStat && <span className="inline-flex items-center gap-1"><Icon name="task_alt" className="ms-16" />{pStat.taskCount} задач</span>}
-                      {pStat && pStat.totalMinutes > 0 && <span className="inline-flex items-center gap-1 text-blue-500 font-medium"><Icon name="timer" className="ms-16" />{fmtTime(pStat.totalMinutes)}</span>}
-                      {pStat && pStat.activeCount > 0 && <span className="inline-flex items-center gap-1 text-green-600"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />{pStat.activeCount} активних</span>}
+                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
+                      {pStat && (
+                        <span className="inline-flex items-center gap-1">
+                          <Ic name="task" size={11} />
+                          {pStat.taskCount} задач
+                        </span>
+                      )}
+                      {pStat && pStat.totalMinutes > 0 && (
+                        <span className="inline-flex items-center gap-1 text-blue-500 font-medium">
+                          <Ic name="timer" size={11} />
+                          {fmtTime(pStat.totalMinutes)}
+                        </span>
+                      )}
+                      {pStat && pStat.activeCount > 0 && (
+                        <span className="inline-flex items-center gap-1 text-emerald-600">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          {pStat.activeCount} активних
+                        </span>
+                      )}
                     </div>
                   </div>
                   {!isConfirming && (
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-0.5">
                       <button
                         onClick={() => onToggle(p.id, !p.is_active)}
-                        className="w-11 h-11 flex items-center justify-center rounded-xl active:bg-gray-100"
-                        title={p.is_active ? 'Деактивувати' : 'Активувати'}
+                        className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors ${p.is_active ? 'text-emerald-500 hover:bg-emerald-50' : 'text-gray-400 hover:bg-gray-100'}`}
+                        title={p.is_active ? 'Деактивувати проєкт' : 'Активувати проєкт'}
+                        aria-label={p.is_active ? 'Деактивувати' : 'Активувати'}
                       >
-                        <Icon name={p.is_active ? 'toggle_on' : 'toggle_off'} className={`ms-24 ${p.is_active ? 'text-green-500' : 'text-gray-400'}`} />
+                        <Ic name={p.is_active ? 'toggle-on' : 'toggle-off'} size={22} />
                       </button>
                       <button
                         onClick={() => setConfirmDelete(p.id)}
-                        className="w-11 h-11 flex items-center justify-center text-gray-400 active:text-red-500 rounded-xl active:bg-red-50"
+                        className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
+                        title="Видалити проєкт"
+                        aria-label="Видалити проєкт"
                       >
-                        <Icon name="delete" className="ms-18" />
+                        <Ic name="trash" size={16} />
                       </button>
                     </div>
                   )}
                 </div>
+
                 {isConfirming && (
-                  <div className="mt-2 flex items-center gap-2 justify-end">
-                    <span className="text-sm text-red-600">Видалити?</span>
+                  <div className="mt-3 flex items-center gap-2 justify-end border-t border-gray-100 pt-3">
+                    <p className="text-sm text-gray-600 flex-1">Видалити <strong>{p.name}</strong>?</p>
                     <button
                       onClick={async () => { await onDelete(p.id); setConfirmDelete(null); }}
-                      className="text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg transition-colors"
+                      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
                     >
-                      Так
+                      Видалити
                     </button>
                     <button
                       onClick={() => setConfirmDelete(null)}
-                      className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded-lg transition-colors"
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm transition-colors"
                     >
                       Скасувати
                     </button>
@@ -707,22 +1031,30 @@ function TasksTab({ tasks }: { tasks: TaskStat[] }) {
     return matchStatus && matchSearch;
   });
 
-  const chips: { key: 'all' | TaskStat['status']; label: string; icon: string }[] = [
-    { key: 'all', label: 'Всі', icon: 'list' },
-    { key: 'in_progress', label: 'В роботі', icon: 'play_circle' },
-    { key: 'paused', label: 'Пауза', icon: 'pause_circle' },
-    { key: 'completed', label: 'Завершено', icon: 'check_circle' },
+  const chips: { key: 'all' | TaskStat['status']; label: string; icon: IconName }[] = [
+    { key: 'all',         label: 'Всі',       icon: 'list' },
+    { key: 'in_progress', label: 'В роботі',  icon: 'play' },
+    { key: 'paused',      label: 'Пауза',     icon: 'pause' },
+    { key: 'completed',   label: 'Завершено', icon: 'check-circle' },
   ];
 
   return (
     <div className="space-y-3">
-      <input
-        type="search"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Пошук задач, людини, проєкту..."
-        className="w-full border border-gray-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-      />
+      {/* Search */}
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+          <Ic name="search" size={16} />
+        </span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Пошук задач, людини, проєкту..."
+          className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+        />
+      </div>
+
+      {/* Filter chips */}
       <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
         {chips.map((c) => (
           <button
@@ -731,47 +1063,49 @@ function TasksTab({ tasks }: { tasks: TaskStat[] }) {
             className={`flex-shrink-0 inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-full transition-colors ${
               statusFilter === c.key
                 ? 'bg-blue-600 text-white'
-                : 'bg-white border border-gray-200 text-gray-600'
+                : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
             }`}
           >
-            <Icon name={c.icon} className="ms-18" />
+            <Ic name={c.icon} size={13} />
             {c.label}
           </button>
         ))}
       </div>
 
-      <div className="text-xs text-gray-400 px-1">{filtered.length} задач</div>
+      <p className="text-xs text-gray-400 px-1">{filtered.length} задач</p>
 
-      {filtered.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-8">Задач не знайдено</p>
+      {filtered.length === 0 && !search && statusFilter === 'all' ? (
+        <EmptyState icon="task" title="Немає задач" hint="Задачі з'являться тут після того, як співробітники почнуть роботу через бота." />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon="search" title="Нічого не знайдено" hint="Спробуйте змінити фільтр або пошуковий запит." />
       ) : (
         <div className="space-y-2">
           {filtered.map((t) => {
             const displayMinutes = t.totalMinutes + (t.status === 'in_progress' ? t.activeMinutes : 0);
             return (
               <div key={t.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
-                {/* Title row */}
+                {/* Title + status */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="font-medium text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
-                  {statusBadge(t.status)}
+                  <StatusBadge status={t.status} />
                 </div>
 
-                {/* Meta row */}
+                {/* Person + project */}
                 <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                   <span className="inline-flex items-center gap-1">
-                    <Icon name="person" className="ms-16 text-gray-400" />
+                    <Ic name="person" size={11} />
                     {t.userName}
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <Icon name="folder" className="ms-16 text-gray-400" />
+                    <Ic name="folder" size={11} />
                     {t.projectName}
                   </span>
                 </div>
 
-                {/* Time row */}
+                {/* Time */}
                 <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
                   <span className={`inline-flex items-center gap-1 font-semibold ${displayMinutes > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                    <Icon name="timer" className="ms-16" />
+                    <Ic name="timer" size={11} />
                     {fmtTime(displayMinutes)}
                     {t.status === 'in_progress' && t.activeMinutes > 0 && (
                       <span className="text-blue-400 font-normal">(зараз)</span>
@@ -779,21 +1113,21 @@ function TasksTab({ tasks }: { tasks: TaskStat[] }) {
                   </span>
                   {t.logCount > 1 && (
                     <span className="inline-flex items-center gap-1 text-gray-400">
-                      <Icon name="history" className="ms-16" />
+                      <Ic name="history" size={11} />
                       {t.logCount} інтервалів
                     </span>
                   )}
                 </div>
 
-                {/* Date row */}
+                {/* Dates */}
                 <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
                   <span className="inline-flex items-center gap-1">
-                    <Icon name="play_arrow" className="ms-16" />
+                    <Ic name="play" size={10} />
                     {fmtDate(t.startedAt)}
                   </span>
                   {t.completedAt && (
-                    <span className="inline-flex items-center gap-1 text-green-600">
-                      <Icon name="check" className="ms-16" />
+                    <span className="inline-flex items-center gap-1 text-emerald-600">
+                      <Ic name="check" size={10} />
                       {fmtDate(t.completedAt)}
                     </span>
                   )}
@@ -827,33 +1161,35 @@ function AdminsTab({ users, authUser, onAdd, onDelete }: AdminsTabProps) {
       <div className="flex justify-end">
         <button
           onClick={() => setShowAdd(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
         >
-          ➕ Додати адміна
+          <Ic name="plus" size={16} />
+          Додати адміна
         </button>
       </div>
 
       {admins.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-8">Адмінів немає</p>
+        <EmptyState icon="key" title="Немає адміністраторів" hint="Додайте адміністраторів, які матимуть доступ до цієї панелі." />
       ) : (
         <div className="space-y-2">
           {admins.map((u) => {
             const isSelf = u.telegram_id === authUser.telegram_id;
             const isConfirming = confirmDelete === u.id;
+
             return (
               <div key={u.id} className="bg-white rounded-xl px-4 py-3 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-semibold text-sm flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-semibold text-sm flex-shrink-0">
                     {(u.first_name ?? u.username ?? '?').charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-medium text-gray-800 truncate">{displayName(u)}</p>
                       {isSelf && (
-                        <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full">Ви</span>
+                        <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-medium">Ви</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                       {u.username && <span>@{u.username}</span>}
                       <span>ID: {u.telegram_id}</span>
                     </div>
@@ -861,25 +1197,32 @@ function AdminsTab({ users, authUser, onAdd, onDelete }: AdminsTabProps) {
                   {!isConfirming && !isSelf && (
                     <button
                       onClick={() => setConfirmDelete(u.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                      title="Видалити"
+                      className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
+                      title="Видалити адміна"
+                      aria-label="Видалити адміна"
                     >
-                      🗑
+                      <Ic name="trash" size={16} />
                     </button>
                   )}
+                  {isSelf && (
+                    <div className="w-10 h-10 flex items-center justify-center text-gray-300" title="Не можна видалити себе">
+                      <Ic name="lock" size={16} />
+                    </div>
+                  )}
                 </div>
+
                 {isConfirming && (
-                  <div className="mt-2 flex items-center gap-2 justify-end">
-                    <span className="text-sm text-red-600">Видалити?</span>
+                  <div className="mt-3 flex items-center gap-2 justify-end border-t border-gray-100 pt-3">
+                    <p className="text-sm text-gray-600 flex-1">Видалити <strong>{displayName(u)}</strong>?</p>
                     <button
                       onClick={async () => { await onDelete(u.id); setConfirmDelete(null); }}
-                      className="text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg transition-colors"
+                      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
                     >
-                      Так
+                      Видалити
                     </button>
                     <button
                       onClick={() => setConfirmDelete(null)}
-                      className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded-lg transition-colors"
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm transition-colors"
                     >
                       Скасувати
                     </button>
@@ -892,11 +1235,7 @@ function AdminsTab({ users, authUser, onAdd, onDelete }: AdminsTabProps) {
       )}
 
       {showAdd && (
-        <UserModal
-          defaultRole="admin"
-          onClose={() => setShowAdd(false)}
-          onSave={onAdd}
-        />
+        <UserModal defaultRole="admin" onClose={() => setShowAdd(false)} onSave={onAdd} />
       )}
     </div>
   );
@@ -914,30 +1253,33 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState('');
+  const [statsErrorTime, setStatsErrorTime] = useState<Date | undefined>();
+  const [statsIsNetwork, setStatsIsNetwork] = useState(false);
 
   const [users, setUsers] = useState<DashUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState('');
+  const [usersErrorTime, setUsersErrorTime] = useState<Date | undefined>();
+  const [usersIsNetwork, setUsersIsNetwork] = useState(false);
 
   const [projects, setProjects] = useState<DashProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState('');
+  const [projectsErrorTime, setProjectsErrorTime] = useState<Date | undefined>();
+  const [projectsIsNetwork, setProjectsIsNetwork] = useState(false);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Try Telegram WebApp SDK first (works inside Telegram Mini App)
     let telegramId: number | null = null;
 
     const tg = (window as any).Telegram?.WebApp;
     if (tg?.initDataUnsafe?.user?.id) {
       telegramId = tg.initDataUnsafe.user.id;
-      // Tell Telegram the app is ready and expand to full height
       tg.ready?.();
       tg.expand?.();
     }
 
-    // Fall back to ?tid= URL param (browser / direct link)
     if (!telegramId) {
       const params = new URLSearchParams(window.location.search);
       const tid = params.get('tid');
@@ -950,7 +1292,7 @@ export default function DashboardPage() {
       return;
     }
 
-    fetch('/api/dashboard/auth', {
+    fetchWithRetry('/api/dashboard/auth', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({ telegramId }),
@@ -976,13 +1318,17 @@ export default function DashboardPage() {
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
     setStatsError('');
+    setStatsIsNetwork(false);
     try {
-      const res = await fetch('/api/dashboard/stats', { headers: HEADERS });
-      if (!res.ok) throw new Error('Помилка завантаження статистики');
+      const res = await fetchWithRetry('/api/dashboard/stats', { headers: HEADERS });
+      if (!res.ok) throw new Error(`Сервер повернув помилку ${res.status}`);
       const data = await res.json();
       setStats(data);
     } catch (e: any) {
-      setStatsError(e.message ?? 'Помилка');
+      const isNet = e instanceof TypeError || e.message?.includes('fetch');
+      setStatsIsNetwork(isNet);
+      setStatsError(isNet ? 'Не вдалося підключитися до сервера' : (e.message ?? 'Невідома помилка'));
+      setStatsErrorTime(new Date());
     } finally {
       setStatsLoading(false);
     }
@@ -991,13 +1337,17 @@ export default function DashboardPage() {
   const fetchUsers = useCallback(async () => {
     setUsersLoading(true);
     setUsersError('');
+    setUsersIsNetwork(false);
     try {
-      const res = await fetch('/api/dashboard/users', { headers: HEADERS });
-      if (!res.ok) throw new Error('Помилка завантаження користувачів');
+      const res = await fetchWithRetry('/api/dashboard/users', { headers: HEADERS });
+      if (!res.ok) throw new Error(`Сервер повернув помилку ${res.status}`);
       const data = await res.json();
       setUsers(data.users ?? []);
     } catch (e: any) {
-      setUsersError(e.message ?? 'Помилка');
+      const isNet = e instanceof TypeError || e.message?.includes('fetch');
+      setUsersIsNetwork(isNet);
+      setUsersError(isNet ? 'Не вдалося підключитися до сервера' : (e.message ?? 'Невідома помилка'));
+      setUsersErrorTime(new Date());
     } finally {
       setUsersLoading(false);
     }
@@ -1006,19 +1356,23 @@ export default function DashboardPage() {
   const fetchProjects = useCallback(async () => {
     setProjectsLoading(true);
     setProjectsError('');
+    setProjectsIsNetwork(false);
     try {
-      const res = await fetch('/api/dashboard/projects', { headers: HEADERS });
-      if (!res.ok) throw new Error('Помилка завантаження проєктів');
+      const res = await fetchWithRetry('/api/dashboard/projects', { headers: HEADERS });
+      if (!res.ok) throw new Error(`Сервер повернув помилку ${res.status}`);
       const data = await res.json();
       setProjects(data.projects ?? []);
     } catch (e: any) {
-      setProjectsError(e.message ?? 'Помилка');
+      const isNet = e instanceof TypeError || e.message?.includes('fetch');
+      setProjectsIsNetwork(isNet);
+      setProjectsError(isNet ? 'Не вдалося підключитися до сервера' : (e.message ?? 'Невідома помилка'));
+      setProjectsErrorTime(new Date());
     } finally {
       setProjectsLoading(false);
     }
   }, []);
 
-  // ── Initial load after auth ───────────────────────────────────────────────
+  // ── Initial load ──────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (authState !== 'ok') return;
@@ -1038,7 +1392,7 @@ export default function DashboardPage() {
   // ── User mutations ────────────────────────────────────────────────────────
 
   async function handleAddUser(data: { telegramId?: number; firstName: string; username: string; role: 'admin' | 'employee' }) {
-    const res = await fetch('/api/dashboard/users', {
+    const res = await fetchWithRetry('/api/dashboard/users', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({
@@ -1049,33 +1403,30 @@ export default function DashboardPage() {
       }),
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? 'Помилка');
-    // Optimistic: prepend new user
+    if (!res.ok) throw new Error(json.error ?? 'Помилка додавання користувача');
     setUsers((prev) => [json.user, ...prev]);
     fetchStats();
   }
 
   async function handleEditUser(id: string, firstName: string) {
-    const res = await fetch('/api/dashboard/users', {
+    const res = await fetchWithRetry('/api/dashboard/users', {
       method: 'PATCH',
       headers: HEADERS,
       body: JSON.stringify({ id, firstName: firstName || null }),
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? 'Помилка');
+    if (!res.ok) throw new Error(json.error ?? 'Помилка редагування');
     setUsers((prev) => prev.map((u) => (u.id === id ? json.user : u)));
   }
 
   async function handleDeleteUser(id: string) {
-    // Optimistic remove
     setUsers((prev) => prev.filter((u) => u.id !== id));
-    const res = await fetch('/api/dashboard/users', {
+    const res = await fetchWithRetry('/api/dashboard/users', {
       method: 'DELETE',
       headers: HEADERS,
       body: JSON.stringify({ id }),
     });
     if (!res.ok) {
-      // Rollback on failure
       fetchUsers();
     } else {
       fetchStats();
@@ -1085,21 +1436,20 @@ export default function DashboardPage() {
   // ── Project mutations ─────────────────────────────────────────────────────
 
   async function handleCreateProject(name: string) {
-    const res = await fetch('/api/dashboard/projects', {
+    const res = await fetchWithRetry('/api/dashboard/projects', {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify({ name }),
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? 'Помилка');
+    if (!res.ok) throw new Error(json.error ?? 'Помилка створення проєкту');
     setProjects((prev) => [json.project, ...prev]);
     fetchStats();
   }
 
   async function handleToggleProject(id: string, isActive: boolean) {
-    // Optimistic update
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, is_active: isActive } : p)));
-    const res = await fetch('/api/dashboard/projects', {
+    const res = await fetchWithRetry('/api/dashboard/projects', {
       method: 'PATCH',
       headers: HEADERS,
       body: JSON.stringify({ id, is_active: isActive }),
@@ -1113,7 +1463,7 @@ export default function DashboardPage() {
 
   async function handleDeleteProject(id: string) {
     setProjects((prev) => prev.filter((p) => p.id !== id));
-    const res = await fetch('/api/dashboard/projects', {
+    const res = await fetchWithRetry('/api/dashboard/projects', {
       method: 'DELETE',
       headers: HEADERS,
       body: JSON.stringify({ id }),
@@ -1125,7 +1475,7 @@ export default function DashboardPage() {
     }
   }
 
-  // ── Render: auth states ───────────────────────────────────────────────────
+  // ── Auth screens ──────────────────────────────────────────────────────────
 
   if (authState === 'loading') {
     return (
@@ -1142,14 +1492,19 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-sm w-full text-center">
-          <div className="text-5xl mb-4">🔒</div>
+          <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4 text-red-500">
+            <Ic name="lock" size={32} />
+          </div>
           <h1 className="text-xl font-bold text-gray-800 mb-2">Доступ заборонено</h1>
           {authError === 'no_tid' ? (
             <p className="text-sm text-gray-500">
               Відкрийте цю сторінку через бота. Посилання повинно містити ваш Telegram ID.
             </p>
           ) : authError === 'network' ? (
-            <p className="text-sm text-gray-500">Помилка мережі. Перевірте з'єднання та спробуйте ще раз.</p>
+            <div className="space-y-2">
+              <p className="text-sm text-gray-500">Помилка мережі під час перевірки доступу.</p>
+              <p className="text-xs text-gray-400">Перевірте з'єднання та перезавантажте сторінку.</p>
+            </div>
           ) : (
             <p className="text-sm text-gray-500">
               У вас немає прав адміністратора. Зверніться до власника бота.
@@ -1160,38 +1515,56 @@ export default function DashboardPage() {
     );
   }
 
-  // ── Render: dashboard ─────────────────────────────────────────────────────
+  // ── Tab definitions ───────────────────────────────────────────────────────
 
-  const tabs: { key: Tab; icon: string; label: string }[] = [
-    { key: 'overview', icon: '📊', label: 'Огляд' },
-    { key: 'team', icon: '👥', label: 'Команда' },
-    { key: 'projects', icon: '📁', label: 'Проєкти' },
-    { key: 'tasks', icon: '📋', label: 'Задачі' },
-    { key: 'admins', icon: '🔑', label: 'Адміни' },
+  const tabs: { key: Tab; icon: IconName; label: string }[] = [
+    { key: 'overview', icon: 'chart',   label: 'Огляд' },
+    { key: 'team',     icon: 'users',   label: 'Команда' },
+    { key: 'projects', icon: 'folder',  label: 'Проєкти' },
+    { key: 'tasks',    icon: 'task',    label: 'Задачі' },
+    { key: 'admins',   icon: 'key',     label: 'Адміни' },
   ];
 
   const isLoading = statsLoading || usersLoading || projectsLoading;
 
+  // ── Tab content ───────────────────────────────────────────────────────────
+
   function renderTabContent() {
     if (activeTab === 'overview') {
-      if (statsLoading && !stats) return <Spinner />;
-      if (statsError) return (
-        <div className="text-center py-12">
-          <p className="text-red-500 text-sm mb-3">{statsError}</p>
-          <button onClick={fetchStats} className="text-sm text-blue-600 underline">Спробувати ще раз</button>
+      if (statsLoading && !stats) return (
+        <div className="space-y-6">
+          <SkeletonStatCards />
+          <SkeletonList count={3} />
         </div>
       );
-      if (!stats) return <Spinner />;
+      if (statsError) return (
+        <ErrorState
+          endpoint="/api/dashboard/stats"
+          message={statsError}
+          isNetwork={statsIsNetwork}
+          onRetry={fetchStats}
+          errorTime={statsErrorTime}
+        />
+      );
+      if (!stats) return (
+        <div className="space-y-6">
+          <SkeletonStatCards />
+          <SkeletonList count={3} />
+        </div>
+      );
       return <OverviewTab stats={stats} />;
     }
 
     if (activeTab === 'team') {
-      if (usersLoading && users.length === 0) return <Spinner />;
+      if (usersLoading && users.length === 0) return <SkeletonList count={5} />;
       if (usersError) return (
-        <div className="text-center py-12">
-          <p className="text-red-500 text-sm mb-3">{usersError}</p>
-          <button onClick={fetchUsers} className="text-sm text-blue-600 underline">Спробувати ще раз</button>
-        </div>
+        <ErrorState
+          endpoint="/api/dashboard/users"
+          message={usersError}
+          isNetwork={usersIsNetwork}
+          onRetry={fetchUsers}
+          errorTime={usersErrorTime}
+        />
       );
       return (
         <TeamTab
@@ -1206,12 +1579,15 @@ export default function DashboardPage() {
     }
 
     if (activeTab === 'projects') {
-      if (projectsLoading && projects.length === 0) return <Spinner />;
+      if (projectsLoading && projects.length === 0) return <SkeletonList count={4} />;
       if (projectsError) return (
-        <div className="text-center py-12">
-          <p className="text-red-500 text-sm mb-3">{projectsError}</p>
-          <button onClick={fetchProjects} className="text-sm text-blue-600 underline">Спробувати ще раз</button>
-        </div>
+        <ErrorState
+          endpoint="/api/dashboard/projects"
+          message={projectsError}
+          isNetwork={projectsIsNetwork}
+          onRetry={fetchProjects}
+          errorTime={projectsErrorTime}
+        />
       );
       return (
         <ProjectsTab
@@ -1225,23 +1601,29 @@ export default function DashboardPage() {
     }
 
     if (activeTab === 'tasks') {
-      if (statsLoading && !stats) return <Spinner />;
+      if (statsLoading && !stats) return <SkeletonList count={5} />;
       if (statsError) return (
-        <div className="text-center py-12">
-          <p className="text-red-500 text-sm mb-3">{statsError}</p>
-          <button onClick={fetchStats} className="text-sm text-blue-600 underline">Спробувати ще раз</button>
-        </div>
+        <ErrorState
+          endpoint="/api/dashboard/stats"
+          message={statsError}
+          isNetwork={statsIsNetwork}
+          onRetry={fetchStats}
+          errorTime={statsErrorTime}
+        />
       );
       return <TasksTab tasks={stats?.recentTasks ?? []} />;
     }
 
     if (activeTab === 'admins') {
-      if (usersLoading && users.length === 0) return <Spinner />;
+      if (usersLoading && users.length === 0) return <SkeletonList count={3} />;
       if (usersError) return (
-        <div className="text-center py-12">
-          <p className="text-red-500 text-sm mb-3">{usersError}</p>
-          <button onClick={fetchUsers} className="text-sm text-blue-600 underline">Спробувати ще раз</button>
-        </div>
+        <ErrorState
+          endpoint="/api/dashboard/users"
+          message={usersError}
+          isNetwork={usersIsNetwork}
+          onRetry={fetchUsers}
+          errorTime={usersErrorTime}
+        />
       );
       return (
         <AdminsTab
@@ -1256,49 +1638,55 @@ export default function DashboardPage() {
     return null;
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div>
+          <div className="flex items-center gap-2">
             <span className="font-bold text-gray-900 text-base">U:DO Work</span>
-            <span className="text-xs text-gray-400 ml-2">Адмін панель</span>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Адмін</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 hidden sm:block">
-              {authUser?.first_name ?? (authUser?.username ? `@${authUser.username}` : '')}
-            </span>
+            {authUser?.first_name && (
+              <span className="text-xs text-gray-500 hidden sm:block truncate max-w-[120px]">
+                {authUser.first_name}
+              </span>
+            )}
             <button
               onClick={refreshAll}
               disabled={isLoading}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
-              title="Оновити"
+              className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-40"
+              title="Оновити дані"
+              aria-label="Оновити дані"
             >
-              <span className={`text-base ${isLoading ? 'animate-spin inline-block' : ''}`}>🔄</span>
+              <Ic name="refresh" size={18} className={isLoading ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
       </header>
 
-      {/* Content */}
+      {/* Main content */}
       <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 pb-24">
         {renderTabContent()}
       </main>
 
       {/* Bottom tab bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40" aria-label="Навігація">
         <div className="max-w-2xl mx-auto flex">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors ${
+              aria-current={activeTab === t.key ? 'page' : undefined}
+              className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors ${
                 activeTab === t.key ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
               }`}
             >
-              <span className="text-lg leading-none">{t.icon}</span>
-              <span className="text-[10px] font-medium">{t.label}</span>
+              <Ic name={t.icon} size={20} />
+              <span className="text-[10px] font-medium leading-none">{t.label}</span>
             </button>
           ))}
         </div>

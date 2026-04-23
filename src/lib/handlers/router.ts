@@ -17,7 +17,7 @@ import * as adminHandlers from '@/lib/handlers/admin.handlers';
 import { sessionService } from '@/lib/services/session.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
-import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu } from '@/lib/telegram/keyboards';
+import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu, buildEmployeeMainMenu } from '@/lib/telegram/keyboards';
 import type { TelegramUpdate, HandlerContext } from '@/types/index';
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,6 @@ const EMPLOYEE_ONLY_ACTIONS = new Set([
   'resume_task',
   'complete_task',
   'my_activity',
-  'back_to_main',
 ]);
 
 /** callback_data action values that only admins may use. */
@@ -46,7 +45,7 @@ const ADMIN_ONLY_ACTIONS = new Set([
   'add_employee',
   'remove_admin',
   'remove_employee',
-  'back_to_main',
+  'invite_to_project',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -55,21 +54,32 @@ const ADMIN_ONLY_ACTIONS = new Set([
 
 /** Maps reply keyboard button text to the equivalent callback action for employees. */
 const EMPLOYEE_TEXT_ACTIONS: Record<string, string> = {
-  '▶️ Почати задачу': 'start_task',
+  // Current keyboard labels
+  '▶ Почати задачу': 'start_task',
   '⏸ Пауза': 'pause_task',
+  '▶ Відновити': 'resume_task',
+  '✓ Завершити задачу': 'complete_task',
+  '📊 Моя активність': 'my_activity',
+  // Legacy labels (kept for backward compatibility with existing sessions)
+  '▶️ Почати задачу': 'start_task',
   '▶️ Відновити': 'resume_task',
   '✅ Завершити задачу': 'complete_task',
-  '📊 Моя активність': 'my_activity',
 };
 
 /** Maps reply keyboard button text to the equivalent callback action for admins. */
 const ADMIN_TEXT_ACTIONS: Record<string, string> = {
+  // Current keyboard labels
+  '+ Створити проєкт': 'create_project',
+  '○ Деактивувати проєкт': 'deactivate_project',
+  '👥 Команда': 'employees',
+  '📋 Задачі та логи': 'tasks_logs',
+  '⚙ Управління користувачами': 'manage_admins',
+  '🔗 Запросити до проєкту': 'invite_to_project',
+  // Legacy labels (kept for backward compatibility)
   '📁 Створити проєкт': 'create_project',
   '🚫 Деактивувати проєкт': 'deactivate_project',
   '👥 Співробітники': 'employees',
-  '📋 Задачі та логи': 'tasks_logs',
   '🔑 Управління користувачами': 'manage_admins',
-  '🔗 Запросити до проєкту': 'invite_to_project',
 };
 
 // ---------------------------------------------------------------------------
@@ -127,7 +137,7 @@ export async function route(
         });
       } else {
         await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
-          reply_markup: EMPLOYEE_MAIN_MENU,
+          reply_markup: buildEmployeeMainMenu(user.telegram_id),
         });
       }
       return;
@@ -236,6 +246,17 @@ export async function route(
       return;
     }
 
+    if (state === 'awaiting_deliverable_choice') {
+      // Employee pressed a reply keyboard button while in deliverable_choice state
+      // — treat as "finish" to avoid getting stuck
+      if (user.role !== 'employee') {
+        await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      await employeeHandlers.handleAddMoreOrFinish(ctx, 'finish');
+      return;
+    }
+
     if (state === 'awaiting_deliverable') {
       // Employee-only state
       if (user.role !== 'employee') {
@@ -253,7 +274,7 @@ export async function route(
       });
     } else {
       await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
-        reply_markup: EMPLOYEE_MAIN_MENU,
+        reply_markup: buildEmployeeMainMenu(user.telegram_id),
       });
     }
   }
@@ -283,13 +304,15 @@ async function handleCallbackData(
     if (action === 'back_to_main') {
       if (ctx.messageId) {
         const text = user.role === 'admin' ? MESSAGES.MAIN_MENU_ADMIN : MESSAGES.MAIN_MENU_EMPLOYEE;
-        const keyboard = user.role === 'admin' ? buildAdminMainMenu(user.telegram_id) : EMPLOYEE_MAIN_MENU;
+        const keyboard = user.role === 'admin'
+          ? buildAdminMainMenu(user.telegram_id)
+          : buildEmployeeMainMenu(user.telegram_id);
         await telegramClient.editMessageText(chatId, ctx.messageId, text, { reply_markup: keyboard });
       } else {
         if (user.role === 'admin') {
           await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_ADMIN, { reply_markup: buildAdminMainMenu(user.telegram_id) });
         } else {
-          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, { reply_markup: EMPLOYEE_MAIN_MENU });
+          await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, { reply_markup: buildEmployeeMainMenu(user.telegram_id) });
         }
       }
       // Reset session state when going back to main
@@ -373,6 +396,7 @@ async function handleCallbackData(
       return;
     }
 
+    // back_to_main works for any role — handled above, so this is a fallthrough
     logger.warn('router: unknown action', action);
     return;
   }

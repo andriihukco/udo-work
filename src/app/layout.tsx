@@ -5,6 +5,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'U:DO Work',
   description: 'Telegram bot for employee time tracking',
+  viewport: 'width=device-width, initial-scale=1, maximum-scale=1',
 };
 
 export default function RootLayout({
@@ -19,11 +20,6 @@ export default function RootLayout({
         <Script
           src="https://telegram.org/js/telegram-web-app.js"
           strategy="beforeInteractive"
-        />
-        {/* Material Symbols Rounded */}
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
         />
       </head>
       <body>{children}</body>

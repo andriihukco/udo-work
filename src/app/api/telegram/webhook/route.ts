@@ -18,7 +18,7 @@ import { userService } from '@/lib/services/user.service';
 import { membershipService } from '@/lib/services/membership.service';
 import { MESSAGES } from '@/lib/messages';
 import { logger } from '@/lib/utils/logger';
-import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu } from '@/lib/telegram/keyboards';
+import { EMPLOYEE_MAIN_MENU, ADMIN_MAIN_MENU, EMPLOYEE_REPLY_KEYBOARD, ADMIN_REPLY_KEYBOARD, buildAdminMainMenu, buildEmployeeMainMenu } from '@/lib/telegram/keyboards';
 import type { TelegramUpdate, HandlerContext, User } from '@/types/index';
 
 // ---------------------------------------------------------------------------
@@ -167,8 +167,9 @@ async function showMainMenu(
       reply_markup: adminMenu,
     });
   } else {
+    const empMenu = telegramId ? buildEmployeeMainMenu(telegramId) : EMPLOYEE_MAIN_MENU;
     await telegramClient.sendMessage(chatId, MESSAGES.MAIN_MENU_EMPLOYEE, {
-      reply_markup: EMPLOYEE_MAIN_MENU,
+      reply_markup: empMenu,
     });
   }
 }
