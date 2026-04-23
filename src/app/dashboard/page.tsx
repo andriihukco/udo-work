@@ -1798,24 +1798,36 @@ export default function DashboardPage() {
       </header>
 
       {/* Main content */}
-      <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 pb-24">
+      <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 pb-32">
         {renderTabContent()}
       </main>
 
       {/* Bottom tab bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40" aria-label="Навігація">
-        <div className="max-w-2xl mx-auto flex">
+      <nav
+        className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-100 z-40"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        aria-label="Навігація"
+      >
+        <div className="max-w-2xl mx-auto flex px-2 pt-2 pb-1">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
               aria-current={activeTab === t.key ? 'page' : undefined}
-              className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors ${
-                activeTab === t.key ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
+              className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-2xl transition-all duration-200 ${
+                activeTab === t.key
+                  ? 'text-blue-600'
+                  : 'text-gray-400 active:text-gray-600'
               }`}
             >
-              <Ic name={t.icon} size={20} />
-              <span className="text-[10px] font-medium leading-none">{t.label}</span>
+              <div className={`flex items-center justify-center w-12 h-8 rounded-2xl transition-all duration-200 ${
+                activeTab === t.key ? 'bg-blue-50' : ''
+              }`}>
+                <Ic name={t.icon} size={22} />
+              </div>
+              <span className={`text-[11px] font-semibold leading-none tracking-tight transition-colors ${
+                activeTab === t.key ? 'text-blue-600' : 'text-gray-400'
+              }`}>{t.label}</span>
             </button>
           ))}
         </div>
