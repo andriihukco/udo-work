@@ -1280,8 +1280,8 @@ function TaskCard({ task: t, displayMinutes, users }: { task: TaskStat; displayM
     return { fileName, displayName, url, isImage };
   };
 
-  const imageFiles = files.map(parseFile).filter((f) => f.isImage);
-  const docFiles = files.map(parseFile).filter((f) => !f.isImage);
+  const imageFiles = files.map((f) => parseFile(f.content)).filter((f) => f.isImage);
+  const docFiles = files.map((f) => parseFile(f.content)).filter((f) => !f.isImage);
 
   return (
     <>
