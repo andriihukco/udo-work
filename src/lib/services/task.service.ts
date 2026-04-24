@@ -474,6 +474,7 @@ export const taskService: TaskService = {
           : row.created_at;
 
         return {
+          taskId: row.id,
           taskName: row.name,
           projectName,
           status: row.status,

@@ -84,10 +84,29 @@ export async function GET(request: Request): Promise<Response> {
       projects = await projectService.getActiveProjects();
     }
 
-    // Today's completed tasks (for session history)
+    // Today's completed tasks (for session history) — include attachments
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    const todayTasks = await taskService.getTasksForUser(user.id, todayStart, new Date());
+    const todayActivities = await taskService.getTasksForUser(user.id, todayStart, new Date());
+
+    // Fetch attachments for today's tasks
+    const todayTaskIds = todayActivities.map((a: any) => a.taskId).filter(Boolean);
+    let attachmentsByTask: Record<string, { type: string; content: string }[]> = {};
+    if (todayTaskIds.length > 0) {
+      const { data: attRows } = await supabase
+        .from('attachments')
+        .select('task_id, type, content')
+        .in('task_id', todayTaskIds);
+      for (const row of (attRows ?? []) as any[]) {
+        if (!attachmentsByTask[row.task_id]) attachmentsByTask[row.task_id] = [];
+        attachmentsByTask[row.task_id].push({ type: row.type, content: row.content });
+      }
+    }
+
+    const todayTasks = todayActivities.map((a: any) => ({
+      ...a,
+      attachments: attachmentsByTask[a.taskId] ?? [],
+    }));
 
     return Response.json({
       user: {
@@ -197,6 +216,35 @@ export async function POST(request: Request): Promise<Response> {
           return Response.json({ error: 'taskId and comment required' }, { status: 400 });
         }
         await storageService.saveTextAttachment(taskId, `💬 ${comment.trim()}`);
+        return Response.json({ ok: true });
+      }
+
+      case 'notify_complete': {
+        // Fire the admin notification for a completed task with all current attachments.
+        // Called by the mini app after the user finishes the CompletePanel
+        // (attachments are uploaded after complete, so we notify here instead).
+        const { taskId } = body;
+        if (!taskId) {
+          return Response.json({ error: 'taskId required' }, { status: 400 });
+        }
+        const attachments = await storageService.getAttachments(taskId);
+        // Fetch the task to get project and total time
+        const { data: taskRow } = await supabase
+          .from('tasks')
+          .select('id, project_id, user_id, name, status, created_at')
+          .eq('id', taskId)
+          .maybeSingle();
+        if (!taskRow) {
+          return Response.json({ error: 'task not found' }, { status: 404 });
+        }
+        const timeLogs = await taskService.getTimeLogs(taskId);
+        const totalTime = taskService.calculateTotalTime(timeLogs);
+        const project = await projectService.findById(taskRow.project_id);
+        if (project) {
+          await notificationService
+            .notifyTaskCompleted(user as any, taskRow as any, project, totalTime, attachments)
+            .catch((err) => logger.error('notify_complete failed', err));
+        }
         return Response.json({ ok: true });
       }
 

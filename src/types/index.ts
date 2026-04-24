@@ -174,6 +174,7 @@ export interface TimeSpent {
 
 /** A single task entry used in activity reports. */
 export interface TaskActivity {
+  taskId: string;
   taskName: string;
   projectName: string;
   status: TaskStatus;

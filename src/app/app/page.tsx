@@ -25,10 +25,12 @@ interface TimeLog {
 }
 
 interface TodayTask {
+  taskId?: string;
   taskName: string;
   projectName: string;
   status: string;
   timeSpent: { hours: number; minutes: number; totalMinutes: number };
+  attachments?: { type: string; content: string }[];
 }
 
 interface TimerState {
@@ -193,6 +195,12 @@ function CompletePanel({ taskId, taskName, projectName, elapsedSeconds, telegram
           body: JSON.stringify({ telegramId, action: "attach_comment", taskId, comment: resultText.trim() }),
         });
       }
+      // Fire admin notification with all attachments (comment + uploaded files)
+      await fetch("/api/app/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegramId, action: "notify_complete", taskId }),
+      });
       setSubmitted(true);
       setTimeout(onDone, 1400);
     } finally {
@@ -693,20 +701,65 @@ export default function AppPage() {
               <div className="text-xs text-slate-400">Всього: {formatTotalTime(todayTotalMin)}</div>
             </div>
             <div className="flex flex-col gap-2">
-              {state.todayTasks.map((t, i) => (
-                <div key={i} className="flex items-center justify-between bg-slate-800 rounded-xl px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{t.taskName}</div>
-                    <div className="text-xs text-slate-400 truncate">{t.projectName}</div>
-                  </div>
-                  <div className="shrink-0 ml-3 text-right">
-                    <div className="text-sm font-mono text-slate-300">{formatTotalTime(t.timeSpent.totalMinutes)}</div>
-                    <div className={`text-xs ${t.status === "completed" ? "text-green-400" : t.status === "in_progress" ? "text-blue-400" : "text-yellow-400"}`}>
-                      {t.status === "completed" ? "✅ Завершено" : t.status === "in_progress" ? "🟢 Активна" : "⏸️ Пауза"}
+              {state.todayTasks.map((t, i) => {
+                const files = (t.attachments ?? []).filter((a) => a.type === 'file');
+                const comments = (t.attachments ?? []).filter((a) => a.type === 'text');
+                const parseFile = (content: string) => {
+                  const nl = content.indexOf('\n');
+                  const name = nl !== -1 ? content.slice(0, nl).trim() : 'Файл';
+                  const url = nl !== -1 ? content.slice(nl + 1).trim() : content;
+                  const isImg = /\.(jpe?g|png|gif|webp)$/i.test(name);
+                  const display = /^photo_\d+\.(jpg|jpeg)$/i.test(name) ? 'Фото' : name;
+                  return { name, display, url, isImg };
+                };
+                return (
+                  <div key={i} className="bg-slate-800 rounded-xl px-4 py-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{t.taskName}</div>
+                        <div className="text-xs text-slate-400 truncate">{t.projectName}</div>
+                      </div>
+                      <div className="shrink-0 ml-3 text-right">
+                        <div className="text-sm font-mono text-slate-300">{formatTotalTime(t.timeSpent.totalMinutes)}</div>
+                        <div className={`text-xs ${t.status === "completed" ? "text-green-400" : t.status === "in_progress" ? "text-blue-400" : "text-yellow-400"}`}>
+                          {t.status === "completed" ? "✅ Завершено" : t.status === "in_progress" ? "🟢 Активна" : "⏸️ Пауза"}
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Comments */}
+                    {comments.map((c, ci) => (
+                      <div key={ci} className="text-xs text-slate-400 leading-relaxed border-t border-slate-700 pt-2">
+                        💬 {c.content.replace(/^💬\s*/, '')}
+                      </div>
+                    ))}
+
+                    {/* File attachments */}
+                    {files.length > 0 && (
+                      <div className="border-t border-slate-700 pt-2 flex flex-col gap-1.5">
+                        {files.map((f, fi) => {
+                          const { display, url, isImg } = parseFile(f.content);
+                          return isImg ? (
+                            <a key={fi} href={url} target="_blank" rel="noopener noreferrer"
+                              className="block rounded-lg overflow-hidden">
+                              <img src={url} alt={display} loading="lazy"
+                                className="w-full max-h-40 object-cover rounded-lg"
+                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            </a>
+                          ) : (
+                            <a key={fi} href={url} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-2 px-3 py-2 bg-slate-700 rounded-lg text-xs text-slate-300 hover:text-white transition-colors">
+                              <span>📄</span>
+                              <span className="truncate flex-1">{display}</span>
+                              <span className="text-slate-500 flex-shrink-0">↗</span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
