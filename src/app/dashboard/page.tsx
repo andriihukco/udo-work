@@ -1282,27 +1282,40 @@ function TaskCard({ task: t, displayMinutes }: { task: TaskStat; displayMinutes:
                 const fileUrl = newlineIdx !== -1 ? a.content.slice(newlineIdx + 1) : a.content;
                 const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
                 return (
-                  <div key={a.id} className="flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2">
-                    <span className="text-blue-400 flex-shrink-0">{isImage ? '🖼️' : '📄'}</span>
-                    <a
-                      href={fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-700 font-medium truncate flex-1 hover:underline"
-                    >
-                      {fileName}
-                    </a>
-                    <a
-                      href={fileUrl}
-                      download={fileName}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-shrink-0 text-blue-500 hover:text-blue-700 transition-colors"
-                      title="Завантажити"
-                      aria-label="Завантажити файл"
-                    >
-                      <Ic name="back" size={14} className="rotate-[-90deg]" />
-                    </a>
+                  <div key={a.id} className="bg-blue-50 rounded-xl overflow-hidden">
+                    {isImage && (
+                      <a href={fileUrl} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={fileUrl}
+                          alt={fileName}
+                          className="w-full max-h-48 object-cover"
+                          loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      </a>
+                    )}
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <span className="text-blue-400 flex-shrink-0">{isImage ? '🖼️' : '📄'}</span>
+                      <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-700 font-medium truncate flex-1 hover:underline"
+                      >
+                        {fileName}
+                      </a>
+                      <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-shrink-0 text-blue-500 hover:text-blue-700 transition-colors p-1"
+                        title="Відкрити файл"
+                        aria-label="Відкрити файл"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Ic name="back" size={14} className="rotate-[-90deg]" />
+                      </a>
+                    </div>
                   </div>
                 );
               })}

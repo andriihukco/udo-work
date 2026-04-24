@@ -275,7 +275,14 @@ export async function handleDeliverableChoice(ctx: HandlerContext, choice: strin
   const { user, session, chatId, messageId } = ctx;
   if (choice === 'yes') {
     await sessionService.setState(user.id, 'awaiting_deliverable', session.context as Record<string, unknown>);
-    await reply(chatId, messageId, '📎 Надішліть файл або текстовий опис результату:\n_/cancel — скасувати_', { parse_mode: 'Markdown' });
+    await reply(chatId, messageId,
+      `📎 *Надішліть файли або фото результату*\n\n` +
+      `Можна надіслати:\n` +
+      `• Одне або кілька фото / файлів\n` +
+      `• Текстовий опис\n\n` +
+      `_Надсилайте по одному або альбомом. Після кожного файлу буде запит "додати ще"._\n` +
+      `_/cancel — скасувати_`,
+      { parse_mode: 'Markdown' });
     return;
   }
   if (choice === 'skip') {
@@ -293,23 +300,36 @@ export async function handleDeliverableInput(ctx: HandlerContext, message: Teleg
     return;
   }
   try {
+    let savedCount = 0;
+
     if (message.document) {
       const doc = message.document;
       const url = await storageService.uploadFile(doc.file_id, doc.file_name ?? 'file', doc.file_size ?? 0, user.id, deliverableCtx.taskId);
       await storageService.saveFileAttachment(deliverableCtx.taskId, url, doc.file_name ?? 'file');
+      savedCount = 1;
     } else if (message.photo && message.photo.length > 0) {
+      // Pick the highest-resolution photo variant
       const photo = message.photo[message.photo.length - 1];
-      const url = await storageService.uploadFile(photo.file_id, `photo_${photo.file_id}.jpg`, photo.file_size ?? 0, user.id, deliverableCtx.taskId);
-      await storageService.saveFileAttachment(deliverableCtx.taskId, url, `photo_${photo.file_id}.jpg`);
+      const fileName = `photo_${Date.now()}.jpg`;
+      const url = await storageService.uploadFile(photo.file_id, fileName, photo.file_size ?? 0, user.id, deliverableCtx.taskId);
+      await storageService.saveFileAttachment(deliverableCtx.taskId, url, fileName);
+      savedCount = 1;
     } else if (message.text) {
       await storageService.saveTextAttachment(deliverableCtx.taskId, message.text);
+      savedCount = 1;
     } else {
-      await telegramClient.sendMessage(chatId, '⚠️ Будь ласка, надішліть файл або текстове повідомлення.');
+      await telegramClient.sendMessage(chatId, '⚠️ Будь ласка, надішліть файл, фото або текстове повідомлення.');
       return;
     }
-    const updatedCtx: AwaitingDeliverableContext = { ...deliverableCtx, attachmentCount: deliverableCtx.attachmentCount + 1 };
+
+    const newCount = deliverableCtx.attachmentCount + savedCount;
+    const updatedCtx: AwaitingDeliverableContext = { ...deliverableCtx, attachmentCount: newCount };
     await sessionService.setState(user.id, 'awaiting_deliverable_choice', updatedCtx as unknown as Record<string, unknown>);
-    await telegramClient.sendMessage(chatId, MESSAGES.DELIVERABLE_SAVED, { reply_markup: ADD_MORE_KEYBOARD });
+
+    const countLabel = newCount === 1 ? '1 файл' : `${newCount} файли`;
+    await telegramClient.sendMessage(chatId,
+      `✅ *Збережено* (${countLabel} загалом)\n\nДодати ще?`,
+      { parse_mode: 'Markdown', reply_markup: ADD_MORE_KEYBOARD });
   } catch (err) {
     if (err instanceof FileTooLargeError) {
       await telegramClient.sendMessage(chatId, MESSAGES.FILE_TOO_LARGE);
@@ -325,7 +345,11 @@ export async function handleAddMoreOrFinish(ctx: HandlerContext, choice: string)
   const { user, session, chatId, messageId } = ctx;
   if (choice === 'add_more') {
     await sessionService.setState(user.id, 'awaiting_deliverable', session.context as Record<string, unknown>);
-    await reply(chatId, messageId, '📎 Надішліть наступний файл або текстовий опис:\n_/cancel — скасувати_', { parse_mode: 'Markdown' });
+    const deliverableCtx = session.context as AwaitingDeliverableContext | null;
+    const count = deliverableCtx?.attachmentCount ?? 0;
+    await reply(chatId, messageId,
+      `📎 Надішліть ще файл або фото:\n_Вже збережено: ${count}_\n_/cancel — скасувати_`,
+      { parse_mode: 'Markdown' });
     return;
   }
   if (choice === 'finish') {

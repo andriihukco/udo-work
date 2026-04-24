@@ -1,10 +1,7 @@
 /**
  * NotificationService — sends admin notifications for key task lifecycle events.
  *
- * Implements fan-out to all admin users via Telegram messages.
- * Per Requirement 11.4: if sending to one admin fails with TelegramApiError,
- * the error is logged and execution continues to the next admin (no rethrow).
- *
+ * Uses plain Markdown (not MarkdownV2) throughout to avoid escaping issues.
  * Requirements: 11.1, 11.2, 11.3, 11.4
  */
 
@@ -21,82 +18,49 @@ import type { UserRow } from '@/lib/db/types';
 // ---------------------------------------------------------------------------
 
 export interface NotificationService {
-  /**
-   * Notifies all admin users that an employee has started a task.
-   * Req 11.1, 11.3
-   */
-  notifyTaskStarted(
-    employee: User,
-    task: Task,
-    project: Project,
-    startedAt: Date,
-  ): Promise<void>;
-
-  /**
-   * Notifies all admin users that an employee has completed a task.
-   * Req 11.2, 11.3
-   */
-  notifyTaskCompleted(
-    employee: User,
-    task: Task,
-    project: Project,
-    totalTime: TimeSpent,
-    attachments: Attachment[],
-  ): Promise<void>;
+  notifyTaskStarted(employee: User, task: Task, project: Project, startedAt: Date): Promise<void>;
+  notifyTaskCompleted(employee: User, task: Task, project: Project, totalTime: TimeSpent, attachments: Attachment[]): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the best available display name for a user.
- * Mirrors the logic in UserService.getDisplayName to avoid a circular dep.
- */
 function getDisplayName(user: User): string {
   if (user.first_name) return user.first_name;
   if (user.username) return `@${user.username}`;
   return user.telegram_id?.toString() ?? 'Unknown';
 }
 
+/** Escape characters that break plain Markdown in Telegram: _ * ` [ ] */
+function esc(s: string): string {
+  return s.replace(/[_*`[\]]/g, (c) => '\\' + c);
+}
+
 /**
- * Formats a single attachment for a Telegram Markdown message.
- *
- * - text attachments: rendered inline as plain text (comments, notes)
- * - file attachments: stored as "filename\nurl"; rendered as a Telegram
- *   inline hyperlink [label](url) so the URL is hidden and the message
- *   stays readable. Images get a 🖼 prefix, other files get 📎.
- *
- * Falls back gracefully for legacy rows that stored only a bare URL.
+ * Formats a single attachment line for a plain Markdown message.
+ * File content is stored as "filename\nurl".
  */
 function formatAttachment(a: Attachment, index: number): string {
   if (a.type === 'text') {
-    return `  ${index + 1}\\. 📝 ${a.content}`;
+    const display = a.content.replace(/^💬\s*/, '');
+    return `  ${index + 1}. 📝 ${display}`;
   }
 
-  // File attachment: content is "filename\nurl" (new format)
-  // or a bare URL (legacy rows before this change)
   const newlineIdx = a.content.indexOf('\n');
   if (newlineIdx === -1) {
-    // Legacy: bare URL — show as hyperlink with generic label
-    return `  ${index + 1}\\. [📎 Файл](${a.content})`;
+    // Legacy bare URL
+    return `  ${index + 1}. [📎 Файл](${a.content})`;
   }
 
   const fileName = a.content.slice(0, newlineIdx).trim();
   const url = a.content.slice(newlineIdx + 1).trim();
-
   const isImage = /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(fileName);
   const icon = isImage ? '🖼' : '📎';
-  // Escape any parentheses in the filename for Markdown link syntax
-  const safeLabel = fileName.replace(/[()]/g, '\\$&');
 
-  return `  ${index + 1}\\. [${icon} ${safeLabel}](${url})`;
+  return `  ${index + 1}. [${icon} ${fileName}](${url})`;
 }
 
-/**
- * Fetches all users with role = 'admin' from the database.
- * Throws DatabaseError on query failure.
- */
 async function fetchAdmins(): Promise<User[]> {
   const { data, error } = await supabase
     .from('users')
@@ -111,18 +75,13 @@ async function fetchAdmins(): Promise<User[]> {
   return (data ?? []) as UserRow[];
 }
 
-/**
- * Sends a message to a single admin, catching and logging TelegramApiError
- * without rethrowing (Req 11.4).
- */
-async function sendToAdmin(
-  admin: User,
-  text: string,
-  options: Record<string, unknown> = { parse_mode: 'Markdown' },
-): Promise<void> {
-  if (!admin.telegram_id) return; // placeholder user — no ID yet, skip
+async function sendToAdmin(admin: User, text: string): Promise<void> {
+  if (!admin.telegram_id) return;
   try {
-    await telegramClient.sendNotification(admin.telegram_id, text, options);
+    await telegramClient.sendNotification(admin.telegram_id, text, {
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true,
+    });
   } catch (err) {
     if (err instanceof TelegramApiError) {
       logger.error(
@@ -131,7 +90,6 @@ async function sendToAdmin(
       );
       // Do NOT rethrow — continue to next admin (Req 11.4)
     } else {
-      // Unexpected errors are re-thrown so they surface properly
       throw err;
     }
   }
@@ -142,75 +100,36 @@ async function sendToAdmin(
 // ---------------------------------------------------------------------------
 
 export const notificationService: NotificationService = {
-  /**
-   * Fetches all admins and sends each a task-started notification.
-   * Req 11.1, 11.3
-   */
-  async notifyTaskStarted(
-    employee: User,
-    task: Task,
-    project: Project,
-    startedAt: Date,
-  ): Promise<void> {
+  async notifyTaskStarted(employee, task, project, startedAt) {
     const admins = await fetchAdmins();
+    if (admins.length === 0) return;
 
-    if (admins.length === 0) {
-      logger.info('NotificationService.notifyTaskStarted: no admin users found, skipping');
-      return;
-    }
-
-    const employeeName = getDisplayName(employee);
     const text =
       `🔔 *Нова задача розпочата*\n\n` +
-      `👤 *Співробітник:* ${employeeName}\n` +
-      `📌 *Задача:* ${task.name}\n` +
-      `📁 *Проєкт:* ${project.name}\n` +
+      `👤 *Співробітник:* ${esc(getDisplayName(employee))}\n` +
+      `📌 *Задача:* ${esc(task.name)}\n` +
+      `📁 *Проєкт:* ${esc(project.name)}\n` +
       `🕐 *Початок:* ${formatDateTime(startedAt)}`;
 
     await Promise.all(admins.map((admin) => sendToAdmin(admin, text)));
   },
 
-  /**
-   * Fetches all admins and sends each a task-completed notification.
-   * Includes attachment list when non-empty.
-   * File attachments are rendered as inline hyperlinks to keep messages short.
-   * Req 11.2, 11.3
-   */
-  async notifyTaskCompleted(
-    employee: User,
-    task: Task,
-    project: Project,
-    totalTime: TimeSpent,
-    attachments: Attachment[],
-  ): Promise<void> {
+  async notifyTaskCompleted(employee, task, project, totalTime, attachments) {
     const admins = await fetchAdmins();
-
-    if (admins.length === 0) {
-      logger.info('NotificationService.notifyTaskCompleted: no admin users found, skipping');
-      return;
-    }
-
-    const employeeName = getDisplayName(employee);
-
-    // Escape special MarkdownV2 chars in plain-text fields
-    const esc2 = (s: string) => s.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&');
+    if (admins.length === 0) return;
 
     let text =
       `✅ *Задачу завершено*\n\n` +
-      `👤 *Співробітник:* ${esc2(employeeName)}\n` +
-      `📌 *Задача:* ${esc2(task.name)}\n` +
-      `📁 *Проєкт:* ${esc2(project.name)}\n` +
-      `⏱ *Витрачено часу:* ${esc2(formatTimeSpent(totalTime))}`;
+      `👤 *Співробітник:* ${esc(getDisplayName(employee))}\n` +
+      `📌 *Задача:* ${esc(task.name)}\n` +
+      `📁 *Проєкт:* ${esc(project.name)}\n` +
+      `⏱ *Витрачено:* ${esc(formatTimeSpent(totalTime))}`;
 
     if (attachments.length > 0) {
       const lines = attachments.map((a, i) => formatAttachment(a, i)).join('\n');
-      text += `\n\n📋 *Результати \\(${attachments.length}\\):*\n${lines}`;
+      text += `\n\n📋 *Результати (${attachments.length}):*\n${lines}`;
     }
 
-    await Promise.all(
-      admins.map((admin) =>
-        sendToAdmin(admin, text, { parse_mode: 'MarkdownV2' }),
-      ),
-    );
+    await Promise.all(admins.map((admin) => sendToAdmin(admin, text)));
   },
 };

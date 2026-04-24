@@ -149,10 +149,10 @@ export const storageService: StorageService = {
       throw new StorageError(`Failed to upload file to storage: ${uploadError.message}`);
     }
 
-    // Generate a signed URL (valid for 1 hour = 3600 seconds)
+    // Generate a signed URL valid for 7 days (604800 seconds)
     const { data: signedUrlData, error: signedUrlError } = await supabase.storage
       .from(bucket)
-      .createSignedUrl(storagePath, 3600);
+      .createSignedUrl(storagePath, 604800);
 
     if (signedUrlError || !signedUrlData?.signedUrl) {
       logger.error(
