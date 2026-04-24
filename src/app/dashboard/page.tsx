@@ -1007,6 +1007,36 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
   );
 }
 
+// ─── Toggle Switch ────────────────────────────────────────────────────────────
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label?: string;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+        checked ? 'bg-emerald-500' : 'bg-gray-300'
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  );
+}
+
 // ─── Projects Tab ─────────────────────────────────────────────────────────────
 
 interface ProjectsTabProps {
@@ -1020,6 +1050,7 @@ interface ProjectsTabProps {
 function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: ProjectsTabProps) {
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   function getProjStat(id: string): ProjStat | undefined {
     return stats?.projects.find((p) => p.id === id);
@@ -1030,36 +1061,62 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
     return a.is_active ? -1 : 1;
   });
 
+  const filtered = sorted.filter((p) =>
+    p.name.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
+    <div className="space-y-3">
+      {/* Search + Add — identical to TeamTab */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+            <Ic name="search" size={16} />
+          </span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Пошук проєктів..."
+            className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+          />
+        </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+          className="flex-shrink-0 bg-blue-600 active:bg-blue-700 text-white font-semibold px-4 py-3 rounded-xl transition-colors flex items-center gap-1.5"
+          aria-label="Створити проєкт"
         >
-          <Ic name="plus" size={16} />
-          Створити проєкт
+          <Ic name="plus" size={18} />
         </button>
       </div>
 
-      {sorted.length === 0 ? (
+      {search && (
+        <p className="text-xs text-gray-400 px-1">{filtered.length} з {projects.length} проєктів</p>
+      )}
+
+      {filtered.length === 0 && !search ? (
         <EmptyState
           icon="folder"
           title="Немає проєктів"
-          hint="Створіть перший проєкт, щоб почати відстежувати задачі та час."
+          hint="Натисніть + щоб створити перший проєкт."
         />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon="search" title="Нічого не знайдено" hint={`Немає проєктів за запитом «${search}»`} />
       ) : (
         <div className="space-y-2">
-          {sorted.map((p) => {
+          {filtered.map((p) => {
             const pStat = getProjStat(p.id);
             const isConfirming = confirmDelete === p.id;
 
             return (
               <div key={p.id} className={`bg-white rounded-2xl px-4 py-3 shadow-sm transition-opacity ${!p.is_active ? 'opacity-60' : ''}`}>
                 <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${p.is_active ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
-                    <Ic name="folder" size={18} />
+                  {/* Folder avatar — same size/shape as team avatars */}
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-sm ${p.is_active ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                    {p.name.charAt(0).toUpperCase()}
                   </div>
+
+                  {/* Name + stats */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-gray-800 truncate">{p.name}</p>
@@ -1067,7 +1124,7 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
                         <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Неактивний</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400 flex-wrap">
                       {pStat && (
                         <span className="inline-flex items-center gap-1">
                           <Ic name="task" size={11} />
@@ -1088,23 +1145,22 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
                       )}
                     </div>
                   </div>
+
+                  {/* Actions */}
                   {!isConfirming && (
-                    <div className="flex items-center gap-0.5">
-                      <button
-                        onClick={() => onToggle(p.id, !p.is_active)}
-                        className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors ${p.is_active ? 'text-emerald-500 hover:bg-emerald-50' : 'text-gray-400 hover:bg-gray-100'}`}
-                        title={p.is_active ? 'Деактивувати проєкт' : 'Активувати проєкт'}
-                        aria-label={p.is_active ? 'Деактивувати' : 'Активувати'}
-                      >
-                        <Ic name={p.is_active ? 'toggle-on' : 'toggle-off'} size={22} />
-                      </button>
+                    <div className="flex items-center gap-2">
+                      <ToggleSwitch
+                        checked={p.is_active}
+                        onChange={(v) => onToggle(p.id, v)}
+                        label={p.is_active ? 'Деактивувати проєкт' : 'Активувати проєкт'}
+                      />
                       <button
                         onClick={() => setConfirmDelete(p.id)}
-                        className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
+                        className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
                         title="Видалити проєкт"
                         aria-label="Видалити проєкт"
                       >
-                        <Ic name="trash" size={16} />
+                        <Ic name="trash" size={15} />
                       </button>
                     </div>
                   )}
@@ -1347,31 +1403,59 @@ interface AdminsTabProps {
 function AdminsTab({ users, authUser, onAdd, onDelete }: AdminsTabProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const admins = users.filter((u) => u.role === 'admin');
+  const filtered = admins.filter((u) => {
+    const q = search.toLowerCase();
+    return (
+      (u.first_name ?? '').toLowerCase().includes(q) ||
+      (u.username ?? '').toLowerCase().includes(q) ||
+      String(u.telegram_id).includes(q)
+    );
+  });
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
+    <div className="space-y-3">
+      {/* Search + Add — identical pattern */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+            <Ic name="search" size={16} />
+          </span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Пошук за ім'ям, username, ID..."
+            className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
+          />
+        </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+          className="flex-shrink-0 bg-blue-600 active:bg-blue-700 text-white font-semibold px-4 py-3 rounded-xl transition-colors flex items-center gap-1.5"
+          aria-label="Додати адміна"
         >
-          <Ic name="plus" size={16} />
-          Додати адміна
+          <Ic name="plus" size={18} />
         </button>
       </div>
 
-      {admins.length === 0 ? (
-        <EmptyState icon="key" title="Немає адміністраторів" hint="Додайте адміністраторів, які матимуть доступ до цієї панелі." />
+      {search && (
+        <p className="text-xs text-gray-400 px-1">{filtered.length} з {admins.length} адміністраторів</p>
+      )}
+
+      {filtered.length === 0 && !search ? (
+        <EmptyState icon="key" title="Немає адміністраторів" hint="Натисніть + щоб додати першого адміністратора." />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon="search" title="Нічого не знайдено" hint={`Немає адміністраторів за запитом «${search}»`} />
       ) : (
         <div className="space-y-2">
-          {admins.map((u) => {
+          {filtered.map((u) => {
             const isSelf = u.telegram_id === authUser.telegram_id;
             const isConfirming = confirmDelete === u.id;
 
             return (
-              <div key={u.id} className="bg-white rounded-xl px-4 py-3 shadow-sm">
+              <div key={u.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-semibold text-sm flex-shrink-0">
                     {(u.first_name ?? u.username ?? '?').charAt(0).toUpperCase()}
@@ -1391,16 +1475,16 @@ function AdminsTab({ users, authUser, onAdd, onDelete }: AdminsTabProps) {
                   {!isConfirming && !isSelf && (
                     <button
                       onClick={() => setConfirmDelete(u.id)}
-                      className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
+                      className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-red-500 rounded-xl hover:bg-red-50 transition-colors"
                       title="Видалити адміна"
                       aria-label="Видалити адміна"
                     >
-                      <Ic name="trash" size={16} />
+                      <Ic name="trash" size={15} />
                     </button>
                   )}
                   {isSelf && (
-                    <div className="w-10 h-10 flex items-center justify-center text-gray-300" title="Не можна видалити себе">
-                      <Ic name="lock" size={16} />
+                    <div className="w-9 h-9 flex items-center justify-center text-gray-300" title="Не можна видалити себе">
+                      <Ic name="lock" size={15} />
                     </div>
                   )}
                 </div>

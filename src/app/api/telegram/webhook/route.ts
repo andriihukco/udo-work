@@ -232,10 +232,10 @@ async function handleInviteRedeem(chatId: number, user: User, token: string): Pr
     const wasRoleProtected = user.role === 'admin' && role === 'employee';
 
     const msg = wasRoleProtected
-      ? `✅ Вас додано до проєкту *${project.name}*\\!\n\n_Ваша роль адміністратора збережена\\._`
-      : `✅ Вас додано до проєкту *${project.name}* як *${roleLabel}*\\!`;
+      ? `✅ Вас додано до проєкту *${project.name}*!\n\n_Ваша роль адміністратора збережена._`
+      : `✅ Вас додано до проєкту *${project.name}* як *${roleLabel}*!`;
 
-    await telegramClient.sendMessage(chatId, msg, { parse_mode: 'MarkdownV2' });
+    await telegramClient.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
     await showMainMenu(chatId, effectiveRole, user.telegram_id ?? undefined);
   } catch (err) {
     logger.error('handleInviteRedeem failed', err);
