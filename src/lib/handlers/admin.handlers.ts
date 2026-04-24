@@ -932,20 +932,23 @@ export async function handleGenerateInviteLink(ctx: HandlerContext, projectId: s
     const roleEmoji = role === 'admin' ? '🔑' : '👷';
     const inviteeLabel = role === 'admin' ? 'адміну' : 'співробітнику';
 
+    // Send as two separate messages:
+    // 1. Plain text with the raw link (no parse_mode — avoids URL escaping issues)
+    // 2. Inline keyboard with the share button
     await reply(chatId, messageId,
-      `🔗 *Запрошення до проєкту*\n\n` +
-      `📁 Проєкт: *${esc(project.name)}*\n` +
-      `${roleEmoji} Роль: *${roleLabel}*\n` +
-      `⏳ Дійсне: *7 днів* · одноразове\n\n` +
-      `*Посилання:*\n${link}\n\n` +
-      `📋 *Як запросити:*\n` +
+      `🔗 Запрошення до проєкту\n\n` +
+      `📁 Проєкт: ${project.name}\n` +
+      `${roleEmoji} Роль: ${roleLabel}\n` +
+      `⏳ Дійсне: 7 днів · одноразове\n\n` +
+      `Посилання:\n${link}\n\n` +
+      `Як запросити:\n` +
       `1. Натисніть кнопку нижче або скопіюйте посилання\n` +
       `2. Надішліть його ${inviteeLabel} у будь-якому месенджері\n` +
       `3. Людина відкриває посилання — Telegram запускає бота\n` +
-      `4. Бот автоматично додає їх до проєкту як *${roleLabel}*\n\n` +
-      `_Посилання одноразове — після використання стає недійсним_`,
+      `4. Бот автоматично додає їх до проєкту як ${roleLabel}\n\n` +
+      `Посилання одноразове — після використання стає недійсним`,
       {
-        parse_mode: 'Markdown',
+        // No parse_mode — plain text, no risk of Markdown parse errors on the URL
         reply_markup: {
           inline_keyboard: [
             [{ text: `${roleEmoji} Поділитись запрошенням`, url: link }],
