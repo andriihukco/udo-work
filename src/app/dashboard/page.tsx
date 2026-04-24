@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Users, FolderOpen, Zap, CheckCircle2, Clock, Play, Pause,
+  Users, FolderOpen, FolderX, Zap, CheckCircle2, Clock, Play, Pause,
   Check, Trash2, Pencil, Plus, Search, RefreshCw,
   Lock, ToggleLeft, ToggleRight, User, List,
   History, Timer, ClipboardCheck, X, AlertTriangle,
@@ -167,6 +167,7 @@ function displayName(u: DashUser | EmpStat): string {
 const ICONS = {
   users: Users,
   folder: FolderOpen,
+  'folder-closed': FolderX,
   zap: Zap,
   'check-circle': CheckCircle2,
   clock: Clock,
@@ -792,12 +793,14 @@ interface TeamTabProps {
   users: DashUser[];
   stats: StatsData | null;
   authUser: AuthUser;
+  initialSelectedId?: string | null;
+  onClearSelection?: () => void;
   onAdd: (data: { telegramId?: number; firstName: string; username: string; role: 'admin' | 'employee' }) => Promise<void>;
   onEdit: (id: string, firstName: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
-function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabProps) {
+function TeamTab({ users, stats, authUser, initialSelectedId, onClearSelection, onAdd, onEdit, onDelete }: TeamTabProps) {
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -805,7 +808,12 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
   const [editingRateId, setEditingRateId] = useState<string | null>(null);
   const [editRate, setEditRate] = useState('');
   const [saving, setSaving] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(initialSelectedId ?? null);
+
+  // Sync if parent changes initialSelectedId (e.g. from overview click)
+  useEffect(() => {
+    if (initialSelectedId) setSelectedEmployee(initialSelectedId);
+  }, [initialSelectedId]);
 
   const employees = users.filter((u) => u.role === 'employee');
   const filtered = employees.filter((u) => {
@@ -868,7 +876,7 @@ function TeamTab({ users, stats, authUser, onAdd, onEdit, onDelete }: TeamTabPro
         <EmployeeDetail
           user={emp}
           stats={stats}
-          onBack={() => setSelectedEmployee(null)}
+          onBack={() => { setSelectedEmployee(null); onClearSelection?.(); }}}
           onEdit={onEdit}
           onDelete={onDelete}
         />
@@ -1040,14 +1048,22 @@ function ToggleSwitch({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-        checked ? 'bg-emerald-500' : 'bg-gray-300'
-      }`}
+      style={{ width: 44, height: 24, borderRadius: 12, padding: 0, border: 'none', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s', background: checked ? '#10b981' : '#d1d5db', position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+      className="focus-visible:ring-2 focus-visible:ring-blue-500 focus:outline-none"
     >
       <span
-        className={`absolute top-1 h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${
-          checked ? 'translate-x-6' : 'translate-x-1'
-        }`}
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: checked ? 23 : 3,
+          width: 18,
+          height: 18,
+          borderRadius: '50%',
+          background: 'white',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          transition: 'left 0.2s',
+          display: 'block',
+        }}
       />
     </button>
   );
@@ -1127,9 +1143,9 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
             return (
               <div key={p.id} className={`bg-white rounded-2xl px-4 py-3 shadow-sm transition-opacity ${!p.is_active ? 'opacity-60' : ''}`}>
                 <div className="flex items-center gap-3">
-                  {/* Folder avatar — same size/shape as team avatars */}
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-sm ${p.is_active ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
-                    {p.name.charAt(0).toUpperCase()}
+                  {/* Folder avatar — open when active, closed when inactive */}
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${p.is_active ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+                    <Ic name={p.is_active ? 'folder' : 'folder-closed'} size={18} />
                   </div>
 
                   {/* Name + stats */}
@@ -1214,9 +1230,15 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
 
 // ─── Task Card ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task: t, displayMinutes }: { task: TaskStat; displayMinutes: number }) {
+function TaskCard({ task: t, displayMinutes, users }: { task: TaskStat; displayMinutes: number; users: DashUser[] }) {
   const [expanded, setExpanded] = useState(false);
   const hasAttachments = t.attachments && t.attachments.length > 0;
+
+  // Find the employee to get their hourly rate
+  const employee = users.find((u) => u.id === t.userId);
+  const taskEarnings = employee?.hourly_rate && displayMinutes > 0
+    ? fmtMoney(calcEarnings(displayMinutes, employee.hourly_rate))
+    : null;
 
   return (
     <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
@@ -1238,7 +1260,7 @@ function TaskCard({ task: t, displayMinutes }: { task: TaskStat; displayMinutes:
         </span>
       </div>
 
-      {/* Time */}
+      {/* Time + salary */}
       <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
         <span className={`inline-flex items-center gap-1 font-semibold ${displayMinutes > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
           <Ic name="timer" size={11} />
@@ -1247,6 +1269,12 @@ function TaskCard({ task: t, displayMinutes }: { task: TaskStat; displayMinutes:
             <span className="text-blue-400 font-normal">(зараз)</span>
           )}
         </span>
+        {taskEarnings !== null && (
+          <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
+            <Ic name="money" size={11} />
+            ~{taskEarnings} ₴
+          </span>
+        )}
         {t.logCount > 1 && (
           <span className="inline-flex items-center gap-1 text-gray-400">
             <Ic name="history" size={11} />
@@ -1345,7 +1373,7 @@ function TaskCard({ task: t, displayMinutes }: { task: TaskStat; displayMinutes:
 
 // ─── Tasks Tab ────────────────────────────────────────────────────────────────
 
-function TasksTab({ tasks }: { tasks: TaskStat[] }) {
+function TasksTab({ tasks, users }: { tasks: TaskStat[]; users: DashUser[] }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStat['status']>('all');
 
@@ -1411,7 +1439,7 @@ function TasksTab({ tasks }: { tasks: TaskStat[] }) {
           {filtered.map((t) => {
             const displayMinutes = t.totalMinutes + (t.status === 'in_progress' ? t.activeMinutes : 0);
             return (
-              <TaskCard key={t.id} task={t} displayMinutes={displayMinutes} />
+              <TaskCard key={t.id} task={t} displayMinutes={displayMinutes} users={users} />
             );
           })}
         </div>
@@ -1556,6 +1584,7 @@ export default function DashboardPage() {
   const [authError, setAuthError] = useState('');
 
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
 
   const [stats, setStats] = useState<StatsData | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -1864,7 +1893,7 @@ export default function DashboardPage() {
           <SkeletonList count={3} />
         </div>
       );
-      return <OverviewTab stats={stats} onSelectEmployee={(id) => { setActiveTab('team'); }} onSelectProject={(id) => { setActiveTab('projects'); }} />;
+      return <OverviewTab stats={stats} onSelectEmployee={(id) => { setSelectedEmployeeId(id); setActiveTab('team'); }} onSelectProject={(id) => { setActiveTab('projects'); }} />;
     }
 
     if (activeTab === 'team') {
@@ -1883,6 +1912,8 @@ export default function DashboardPage() {
           users={users}
           stats={stats}
           authUser={authUser!}
+          initialSelectedId={selectedEmployeeId}
+          onClearSelection={() => setSelectedEmployeeId(null)}
           onAdd={handleAddUser}
           onEdit={handleEditUser}
           onDelete={handleDeleteUser}
@@ -1923,7 +1954,7 @@ export default function DashboardPage() {
           errorTime={statsErrorTime}
         />
       );
-      return <TasksTab tasks={stats?.recentTasks ?? []} />;
+      return <TasksTab tasks={stats?.recentTasks ?? []} users={users} />;
     }
 
     if (activeTab === 'admins') {
