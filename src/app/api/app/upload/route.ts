@@ -1,20 +1,21 @@
 /**
- * Mini app file upload endpoint.
- * Accepts multipart/form-data with fields: telegramId, taskId, file
- * Uploads the file to Supabase Storage and saves an attachment record.
+ * File upload API for the employee mini app.
+ * Accepts multipart/form-data with a file and taskId.
+ * Uploads to Supabase Storage and saves an attachment record.
+ *
+ * POST { file: File, taskId: string, telegramId: number }
  */
 
 import { supabase } from '@/lib/db/client';
 import { storageService } from '@/lib/services/storage.service';
 import { logger } from '@/lib/utils/logger';
-import { StorageError, FileTooLargeError } from '@/types/index';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
 async function resolveUser(telegramId: number) {
   const { data, error } = await supabase
     .from('users')
-    .select('id, telegram_id, role')
+    .select('id, role')
     .eq('telegram_id', telegramId)
     .maybeSingle();
   if (error || !data) return null;
@@ -24,12 +25,17 @@ async function resolveUser(telegramId: number) {
 export async function POST(request: Request): Promise<Response> {
   try {
     const formData = await request.formData();
-    const telegramId = Number(formData.get('telegramId'));
-    const taskId = formData.get('taskId') as string | null;
     const file = formData.get('file') as File | null;
+    const taskId = formData.get('taskId') as string | null;
+    const telegramIdStr = formData.get('telegramId') as string | null;
 
-    if (!telegramId || !taskId || !file) {
-      return Response.json({ error: 'telegramId, taskId and file required' }, { status: 400 });
+    if (!file || !taskId || !telegramIdStr) {
+      return Response.json({ error: 'file, taskId and telegramId required' }, { status: 400 });
+    }
+
+    const telegramId = Number(telegramIdStr);
+    if (isNaN(telegramId)) {
+      return Response.json({ error: 'invalid telegramId' }, { status: 400 });
     }
 
     const user = await resolveUser(telegramId);
@@ -46,12 +52,11 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: 'Storage not configured' }, { status: 500 });
     }
 
-    const timestamp = Date.now();
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `${user.id}/${taskId}/${timestamp}-${safeName}`;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    // Upload to Supabase Storage
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const fileName = file.name || `upload_${Date.now()}`;
+    const storagePath = `${user.id}/${taskId}/${Date.now()}-${fileName}`;
 
     const { error: uploadError } = await supabase.storage
       .from(bucket)
@@ -61,25 +66,25 @@ export async function POST(request: Request): Promise<Response> {
       });
 
     if (uploadError) {
-      logger.error('Mini app upload: storage error', uploadError);
+      logger.error('Upload API: storage upload failed', uploadError);
       return Response.json({ error: 'Upload failed' }, { status: 500 });
     }
 
     // Signed URL valid for 7 days
     const { data: signedData, error: signedError } = await supabase.storage
       .from(bucket)
-      .createSignedUrl(storagePath, 604800);
+      .createSignedUrl(storagePath, 7 * 24 * 3600);
 
     if (signedError || !signedData?.signedUrl) {
-      logger.error('Mini app upload: signed URL error', signedError);
-      return Response.json({ error: 'Failed to generate URL' }, { status: 500 });
+      logger.error('Upload API: signed URL failed', signedError);
+      return Response.json({ error: 'Could not generate URL' }, { status: 500 });
     }
 
-    await storageService.saveFileAttachment(taskId, signedData.signedUrl, file.name);
+    const attachment = await storageService.saveFileAttachment(taskId, signedData.signedUrl, fileName);
 
-    return Response.json({ ok: true, url: signedData.signedUrl, fileName: file.name });
+    return Response.json({ ok: true, attachment });
   } catch (err) {
-    logger.error('Mini app upload error', err);
+    logger.error('Upload API error', err);
     return Response.json({ error: 'Internal error' }, { status: 500 });
   }
 }

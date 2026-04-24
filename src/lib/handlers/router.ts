@@ -465,7 +465,8 @@ async function handleCallbackData(
   }
 
   // -------------------------------------------------------------------------
-  // deliverable:{yes|skip|add_more|finish} prefix — employee only
+  // deliverable:{skip|add_more|finish} prefix — employee only
+  // (the old 'yes' choice is gone — files are requested directly after comment)
   // -------------------------------------------------------------------------
   if (data.startsWith('deliverable:')) {
     if (user.role !== 'employee') {
@@ -474,10 +475,8 @@ async function handleCallbackData(
     }
     const choice = data.slice('deliverable:'.length);
 
-    if (choice === 'yes' || choice === 'skip') {
-      await employeeHandlers.handleDeliverableChoice(ctx, choice);
-    } else if (choice === 'add_more' || choice === 'finish') {
-      await employeeHandlers.handleAddMoreOrFinish(ctx, choice);
+    if (choice === 'add_more' || choice === 'finish' || choice === 'skip') {
+      await employeeHandlers.handleAddMoreOrFinish(ctx, choice === 'skip' ? 'finish' : choice);
     } else {
       logger.warn('router: unknown deliverable choice', choice);
     }

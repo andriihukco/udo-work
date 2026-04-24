@@ -41,8 +41,8 @@ interface TimerState {
 
 interface UploadedFile {
   name: string;
-  url: string;
-  isImage: boolean;
+  status: "uploading" | "done" | "error";
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,177 +126,152 @@ function AdminRedirectView({ name, telegramId }: { name: string; telegramId: num
 }
 
 // ---------------------------------------------------------------------------
-// Complete task panel — comment + file upload
+// Complete task panel — comment + file attachments
 // ---------------------------------------------------------------------------
 
-function CompletePanel({
-  task,
-  telegramId,
-  onDone,
-  onCancel,
-}: {
-  task: ActiveTask;
+interface CompletePanelProps {
+  taskId: string;
+  taskName: string;
   telegramId: number;
   onDone: () => void;
-  onCancel: () => void;
-}) {
-  const [comment, setComment] = useState("");
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  // taskId is set after complete action — we need it for uploads
-  const [completedTaskId, setCompletedTaskId] = useState<string | null>(null);
+}
 
-  // Step 1: complete the task (stop the timer), get the task ID back
-  const handleComplete = async () => {
+function CompletePanel({ taskId, taskName, telegramId, onDone }: CompletePanelProps) {
+  const [comment, setComment] = useState("");
+  const [uploads, setUploads] = useState<UploadedFile[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFile = async (file: File) => {
+    const entry: UploadedFile = { name: file.name, status: "uploading" };
+    setUploads((prev) => [...prev, entry]);
+
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("taskId", taskId);
+    fd.append("telegramId", String(telegramId));
+
+    try {
+      const res = await fetch("/api/app/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.error === "file_too_large" ? "Файл > 20 МБ" : "Помилка завантаження";
+        setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: "error", error: msg } : u));
+      } else {
+        setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: "done" } : u));
+      }
+    } catch {
+      setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: "error", error: "Помилка мережі" } : u));
+    }
+  };
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files) return;
+    Array.from(files).forEach(uploadFile);
+  };
+
+  const handleFinish = async () => {
     setSubmitting(true);
     try {
-      const res = await fetch("/api/app/timer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telegramId, action: "complete_with_comment", comment }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Помилка");
-      setCompletedTaskId(data.task.id);
-    } catch (e: any) {
-      setUploadError(e.message);
+      if (comment.trim()) {
+        await fetch("/api/app/timer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ telegramId, action: "attach_comment", taskId, comment: comment.trim() }),
+        });
+      }
+      setSubmitted(true);
+      setTimeout(onDone, 1200);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Step 2: upload a file to the completed task
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !completedTaskId) return;
-    if (file.size > 20 * 1024 * 1024) {
-      setUploadError("Файл занадто великий (макс. 20 МБ)");
-      return;
-    }
-    setUploading(true);
-    setUploadError(null);
-    try {
-      const fd = new FormData();
-      fd.append("telegramId", String(telegramId));
-      fd.append("taskId", completedTaskId);
-      fd.append("file", file);
-      const res = await fetch("/api/app/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Помилка завантаження");
-      const isImage = /\.(jpe?g|png|gif|webp)$/i.test(file.name);
-      setFiles((prev) => [...prev, { name: file.name, url: data.url, isImage }]);
-    } catch (e: any) {
-      setUploadError(e.message);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  // If task is already completed, show the attachment panel
-  if (completedTaskId) {
+  if (submitted) {
     return (
-      <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4 animate-fade-in">
-        <div className="flex items-center gap-2">
-          <span className="text-green-400 text-lg">✅</span>
-          <div>
-            <div className="text-sm font-semibold text-white">Задачу завершено!</div>
-            <div className="text-xs text-slate-400 truncate">{task.name}</div>
-          </div>
-        </div>
-
-        {/* Uploaded files */}
-        {files.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {files.map((f, i) => (
-              <div key={i} className="bg-slate-700 rounded-xl overflow-hidden">
-                {f.isImage && (
-                  <img src={f.url} alt={f.name} className="w-full max-h-40 object-cover" loading="lazy" />
-                )}
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <span className="text-slate-400 text-sm">{f.isImage ? "🖼️" : "📄"}</span>
-                  <span className="text-xs text-slate-300 truncate flex-1">{f.name}</span>
-                  <span className="text-xs text-green-400">✓</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {uploadError && (
-          <div className="text-xs text-red-400 bg-red-900/30 rounded-lg px-3 py-2">{uploadError}</div>
-        )}
-
-        {/* File picker */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.txt"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-xl text-sm font-medium text-slate-300 transition-colors flex items-center justify-center gap-2"
-        >
-          {uploading ? (
-            <><span className="animate-spin">⏳</span> Завантаження...</>
-          ) : (
-            <>📎 Додати файл або фото</>
-          )}
-        </button>
-
-        <button
-          onClick={onDone}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold transition-colors"
-        >
-          {files.length > 0 ? `Готово (${files.length} файл${files.length > 1 ? "и" : ""})` : "Готово"}
-        </button>
+      <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col items-center gap-3 animate-fade-in">
+        <div className="text-4xl">🎉</div>
+        <div className="text-base font-semibold text-green-400">Задачу завершено!</div>
       </section>
     );
   }
 
-  // Initial panel — comment + complete button
+  const doneCount = uploads.filter((u) => u.status === "done").length;
+  const uploadingCount = uploads.filter((u) => u.status === "uploading").length;
+
   return (
     <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4 animate-fade-in">
       <div>
-        <div className="text-sm font-semibold mb-1">✅ Завершити задачу</div>
-        <div className="text-xs text-slate-400 truncate">{task.name}</div>
+        <div className="text-xs text-slate-400 mb-0.5">Завершення задачі</div>
+        <div className="text-sm font-semibold text-white truncate">{taskName}</div>
       </div>
 
+      {/* Comment */}
       <div>
-        <label className="text-xs text-slate-400 mb-1 block">Коментар (необов'язково)</label>
+        <label className="text-xs text-slate-400 mb-1 block">💬 Коментар (необов'язково)</label>
         <textarea
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          placeholder="Що було зроблено? Результат?"
-          rows={3}
+          placeholder="Що було зроблено, результат..."
+          rows={2}
           className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-          autoFocus
         />
       </div>
 
-      {uploadError && (
-        <div className="text-xs text-red-400 bg-red-900/30 rounded-lg px-3 py-2">{uploadError}</div>
+      {/* File upload */}
+      <div>
+        <label className="text-xs text-slate-400 mb-1 block">📎 Вкладення (необов'язково)</label>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full py-2.5 border border-dashed border-slate-600 rounded-xl text-sm text-slate-400 hover:border-blue-500 hover:text-blue-400 transition-colors flex items-center justify-center gap-2"
+        >
+          <span>+</span> Додати фото або файл
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.txt"
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+      </div>
+
+      {/* Upload list */}
+      {uploads.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {uploads.map((u, i) => (
+            <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${
+              u.status === "done" ? "bg-green-900/40 text-green-400"
+              : u.status === "error" ? "bg-red-900/40 text-red-400"
+              : "bg-slate-700 text-slate-400"
+            }`}>
+              <span className="flex-shrink-0">
+                {u.status === "done" ? "✅" : u.status === "error" ? "❌" : "⏳"}
+              </span>
+              <span className="truncate flex-1">{u.name}</span>
+              {u.error && <span className="flex-shrink-0 text-red-400">{u.error}</span>}
+            </div>
+          ))}
+        </div>
       )}
 
-      <div className="flex gap-3">
+      {/* Actions */}
+      <div className="flex gap-3 pt-1">
         <button
-          onClick={onCancel}
-          className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold transition-colors"
-        >
-          Скасувати
-        </button>
-        <button
-          onClick={handleComplete}
-          disabled={submitting}
+          onClick={handleFinish}
+          disabled={submitting || uploadingCount > 0}
           className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-xl text-sm font-semibold transition-colors"
         >
-          {submitting ? "⏳ Завершення..." : "Завершити →"}
+          {uploadingCount > 0 ? `Завантаження ${uploadingCount}...` : submitting ? "Збереження..." : doneCount > 0 ? `✅ Завершити (${doneCount} файл${doneCount > 1 ? "и" : ""})` : "✅ Завершити"}
+        </button>
+        <button
+          onClick={handleFinish}
+          disabled={submitting || uploadingCount > 0}
+          className="px-4 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-xl text-sm text-slate-400 transition-colors"
+        >
+          Пропустити
         </button>
       </div>
     </section>
@@ -317,12 +292,16 @@ export default function AppPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [showNewTask, setShowNewTask] = useState(false);
-  const [showCompletePanel, setShowCompletePanel] = useState(false);
   const [selectedProject, setSelectedProject] = useState("");
   const [taskName, setTaskName] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
+  // After completing — show attachment panel for the just-completed task
+  const [completedTask, setCompletedTask] = useState<{ id: string; name: string } | null>(null);
+
+  // ---------------------------------------------------------------------------
   // Init
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     let tid: number | null = null;
     const tg = (window as any).Telegram?.WebApp;
@@ -339,6 +318,9 @@ export default function AppPage() {
     else setError("Не вдалося визначити користувача. Відкрийте через Telegram.");
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Fetch state
+  // ---------------------------------------------------------------------------
   const fetchState = useCallback(async (tid: number) => {
     try {
       const res = await fetch(`/api/app/timer?telegramId=${tid}`);
@@ -363,12 +345,18 @@ export default function AppPage() {
     if (telegramId) fetchState(telegramId);
   }, [telegramId, fetchState]);
 
+  // ---------------------------------------------------------------------------
+  // Live timer tick
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (state.activeTask?.status !== "in_progress") return;
     const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
     return () => clearInterval(interval);
   }, [state.activeTask?.status]);
 
+  // ---------------------------------------------------------------------------
+  // API actions
+  // ---------------------------------------------------------------------------
   const doAction = useCallback(async (action: string, extra?: Record<string, string>) => {
     if (!telegramId) return;
     setActionLoading(true);
@@ -389,13 +377,13 @@ export default function AppPage() {
         return;
       }
       setError(null);
-      await fetchState(telegramId);
+      return data;
     } catch {
       setError("Помилка мережі");
     } finally {
       setActionLoading(false);
     }
-  }, [telegramId, fetchState]);
+  }, [telegramId]);
 
   const handleStart = async () => {
     if (!selectedProject || !taskName.trim()) return;
@@ -403,14 +391,33 @@ export default function AppPage() {
     setShowNewTask(false);
     setTaskName("");
     setSelectedProject("");
+    if (telegramId) fetchState(telegramId);
   };
 
+  const handleComplete = async () => {
+    if (!state.activeTask) return;
+    const taskInfo = { id: state.activeTask.id, name: state.activeTask.name };
+    const result = await doAction("complete");
+    if (result?.ok) {
+      setCompletedTask(taskInfo);
+      // Refresh state so active task is cleared
+      if (telegramId) fetchState(telegramId);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Derived
+  // ---------------------------------------------------------------------------
   const task = state.activeTask;
   const isRunning = task?.status === "in_progress";
   const isPaused = task?.status === "paused";
   const hasTask = !!task;
   const projectName = state.projects.find((p) => p.id === task?.projectId)?.name ?? "";
   const todayTotalMin = state.todayTasks.reduce((s, t) => s + t.timeSpent.totalMinutes, 0);
+
+  // ---------------------------------------------------------------------------
+  // Screens
+  // ---------------------------------------------------------------------------
 
   if (loading) return <LoadingScreen />;
 
@@ -429,106 +436,134 @@ export default function AppPage() {
     return <AdminRedirectView name={state.user.name} telegramId={telegramId!} />;
   }
 
+  // ---------------------------------------------------------------------------
+  // Employee view
+  // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col animate-fade-in">
+      {/* Header */}
       <header className="flex items-center justify-between px-4 pt-4 pb-2">
         <div>
           <div className="text-xs text-slate-400 uppercase tracking-wider">Таймер</div>
-          <div className="text-sm font-semibold text-white truncate max-w-[200px]">{state.user?.name ?? "—"}</div>
+          <div className="text-sm font-semibold text-white truncate max-w-[200px]">
+            {state.user?.name ?? "—"}
+          </div>
         </div>
       </header>
 
+      {/* Error banner */}
       {error && (
-        <div className="mx-4 mt-2 px-3 py-2 bg-red-900/60 border border-red-700 rounded-lg text-sm text-red-200">{error}</div>
+        <div className="mx-4 mt-2 px-3 py-2 bg-red-900/60 border border-red-700 rounded-lg text-sm text-red-200">
+          {error}
+        </div>
       )}
 
       <main className="flex-1 flex flex-col items-center px-4 pt-4 pb-6 gap-5" style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
 
-        {/* Complete panel — shown when user taps Завершити */}
-        {showCompletePanel && task && (
+        {/* Complete panel — shown right after task is completed */}
+        {completedTask && !hasTask && (
           <CompletePanel
-            task={task}
+            taskId={completedTask.id}
+            taskName={completedTask.name}
             telegramId={telegramId!}
-            onDone={() => { setShowCompletePanel(false); fetchState(telegramId!); }}
-            onCancel={() => setShowCompletePanel(false)}
+            onDone={() => {
+              setCompletedTask(null);
+              if (telegramId) fetchState(telegramId);
+            }}
           />
         )}
 
         {/* Active task card */}
-        {hasTask && !showCompletePanel ? (
+        {hasTask && (
           <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-slate-400 mb-0.5 truncate">{projectName}</div>
                 <div className="text-base font-semibold leading-snug break-words">{task.name}</div>
               </div>
-              <span className={`shrink-0 text-xs px-2 py-1 rounded-full font-medium ${isRunning ? "bg-green-900/60 text-green-400" : "bg-yellow-900/60 text-yellow-400"}`}>
+              <span className={`shrink-0 text-xs px-2 py-1 rounded-full font-medium ${
+                isRunning ? "bg-green-900/60 text-green-400" : "bg-yellow-900/60 text-yellow-400"
+              }`}>
                 {isRunning ? "🟢 Активна" : "⏸️ Пауза"}
               </span>
             </div>
 
             <div className="flex flex-col items-center py-2">
-              <div className="text-5xl font-mono font-bold tracking-tight tabular-nums">{formatHMS(elapsedSeconds)}</div>
+              <div className="text-5xl font-mono font-bold tracking-tight tabular-nums">
+                {formatHMS(elapsedSeconds)}
+              </div>
               <div className="text-xs text-slate-400 mt-1">витрачено часу</div>
             </div>
 
             <div className="flex gap-3">
               {isRunning && (
-                <button onClick={() => doAction("pause")} disabled={actionLoading} className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-900 transition-colors">
+                <button onClick={async () => { await doAction("pause"); if (telegramId) await fetchState(telegramId); }} disabled={actionLoading}
+                  className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-900 transition-colors">
                   ⏸️ Пауза
                 </button>
               )}
               {isPaused && (
-                <button onClick={() => doAction("resume")} disabled={actionLoading} className="flex-1 py-3 bg-green-500 hover:bg-green-400 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-900 transition-colors">
+                <button onClick={async () => { await doAction("resume"); if (telegramId) await fetchState(telegramId); }} disabled={actionLoading}
+                  className="flex-1 py-3 bg-green-500 hover:bg-green-400 disabled:opacity-50 rounded-xl text-sm font-semibold text-slate-900 transition-colors">
                   ▶️ Відновити
                 </button>
               )}
-              <button
-                onClick={() => setShowCompletePanel(true)}
-                disabled={actionLoading}
-                className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm font-semibold transition-colors"
-              >
+              <button onClick={handleComplete} disabled={actionLoading}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm font-semibold transition-colors">
                 ✅ Завершити
               </button>
             </div>
           </section>
-        ) : !hasTask && !showCompletePanel ? (
+        )}
+
+        {/* No active task + no complete panel */}
+        {!hasTask && !completedTask && (
           <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col items-center gap-3">
             <div className="text-4xl">⏱️</div>
             <div className="text-base font-semibold">Немає активної задачі</div>
             <div className="text-sm text-slate-400 text-center">Розпочніть нову задачу, щоб почати відстеження часу</div>
             {!showNewTask && (
-              <button onClick={() => setShowNewTask(true)} className="mt-1 w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold transition-colors">
+              <button onClick={() => setShowNewTask(true)}
+                className="mt-1 w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold transition-colors">
                 🚀 Почати задачу
               </button>
             )}
           </section>
-        ) : null}
+        )}
 
         {/* New task form */}
-        {showNewTask && !hasTask && !showCompletePanel && (
+        {showNewTask && !hasTask && !completedTask && (
           <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4">
             <div className="text-sm font-semibold">📝 Нова задача</div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block" htmlFor="project-select">Проєкт</label>
-              <select id="project-select" value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500">
+              <select id="project-select" value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500">
                 <option value="">Оберіть проєкт...</option>
                 {state.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block" htmlFor="task-name">Назва задачі</label>
-              <input id="task-name" type="text" value={taskName} onChange={(e) => setTaskName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleStart()} placeholder="Що будете робити?" maxLength={200} className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" autoFocus />
+              <input id="task-name" type="text" value={taskName} onChange={(e) => setTaskName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleStart()} placeholder="Що будете робити?" maxLength={200} autoFocus
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div className="flex gap-3">
-              <button onClick={() => { setShowNewTask(false); setTaskName(""); setSelectedProject(""); }} className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold transition-colors">Скасувати</button>
-              <button onClick={handleStart} disabled={!selectedProject || !taskName.trim() || actionLoading} className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:opacity-40 rounded-xl text-sm font-semibold transition-colors">🚀 Розпочати</button>
+              <button onClick={() => { setShowNewTask(false); setTaskName(""); setSelectedProject(""); }}
+                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-semibold transition-colors">
+                Скасувати
+              </button>
+              <button onClick={handleStart} disabled={!selectedProject || !taskName.trim() || actionLoading}
+                className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:opacity-40 rounded-xl text-sm font-semibold transition-colors">
+                🚀 Розпочати
+              </button>
             </div>
           </section>
         )}
 
         {/* Today's summary */}
-        {state.todayTasks.length > 0 && !showCompletePanel && (
+        {state.todayTasks.length > 0 && !completedTask && (
           <section className="w-full">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-semibold text-slate-300">📅 Сьогодні</div>
