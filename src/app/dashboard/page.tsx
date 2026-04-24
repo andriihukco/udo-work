@@ -1256,6 +1256,7 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
 
 function TaskCard({ task: t, displayMinutes, users }: { task: TaskStat; displayMinutes: number; users: DashUser[] }) {
   const [expanded, setExpanded] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const hasAttachments = t.attachments && t.attachments.length > 0;
 
   // Find the employee to get their hourly rate
@@ -1264,134 +1265,179 @@ function TaskCard({ task: t, displayMinutes, users }: { task: TaskStat; displayM
     ? fmtMoney(calcEarnings(displayMinutes, employee.hourly_rate))
     : null;
 
+  // Separate comments from files
+  const comments = t.attachments?.filter((a) => a.type === 'text') ?? [];
+  const files = t.attachments?.filter((a) => a.type === 'file') ?? [];
+
+  // Parse file content "filename\nurl"
+  const parseFile = (content: string) => {
+    const nl = content.indexOf('\n');
+    const fileName = nl !== -1 ? content.slice(0, nl).trim() : 'Файл';
+    const url = nl !== -1 ? content.slice(nl + 1).trim() : content;
+    const isImage = /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(fileName);
+    // Clean up auto-generated photo names for display
+    const displayName = /^photo_\d+\.jpg$/i.test(fileName) ? 'Фото' : fileName;
+    return { fileName, displayName, url, isImage };
+  };
+
+  const imageFiles = files.map(parseFile).filter((f) => f.isImage);
+  const docFiles = files.map(parseFile).filter((f) => !f.isImage);
+
   return (
-    <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
-      {/* Title + status */}
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="font-medium text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
-        <StatusBadge status={t.status} />
-      </div>
-
-      {/* Person + project */}
-      <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-        <span className="inline-flex items-center gap-1">
-          <Ic name="person" size={11} />
-          {t.userName}
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Ic name="folder" size={11} />
-          {t.projectName}
-        </span>
-      </div>
-
-      {/* Time + salary */}
-      <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
-        <span className={`inline-flex items-center gap-1 font-semibold ${displayMinutes > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-          <Ic name="timer" size={11} />
-          {fmtTime(displayMinutes)}
-          {t.status === 'in_progress' && t.activeMinutes > 0 && (
-            <span className="text-blue-400 font-normal">(зараз)</span>
-          )}
-        </span>
-        {taskEarnings !== null && (
-          <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
-            <Ic name="money" size={11} />
-            ~{taskEarnings} ₴
-          </span>
-        )}
-        {t.logCount > 1 && (
-          <span className="inline-flex items-center gap-1 text-gray-400">
-            <Ic name="history" size={11} />
-            {t.logCount} інтервалів
-          </span>
-        )}
-      </div>
-
-      {/* Dates */}
-      <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
-        <span className="inline-flex items-center gap-1">
-          <Ic name="play" size={10} />
-          {fmtDate(t.startedAt)}
-        </span>
-        {t.completedAt && (
-          <span className="inline-flex items-center gap-1 text-emerald-600">
-            <Ic name="check" size={10} />
-            {fmtDate(t.completedAt)}
-          </span>
-        )}
-      </div>
-
-      {/* Attachments toggle */}
-      {hasAttachments && (
-        <div className="mt-2 border-t border-gray-100 pt-2">
+    <>
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox}
+            alt="Preview"
+            className="max-w-full max-h-full rounded-xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
           <button
-            onClick={() => setExpanded((v) => !v)}
-            className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+            aria-label="Закрити"
           >
-            <Ic name="task" size={12} />
-            {t.attachments.length} {t.attachments.length === 1 ? 'вкладення' : 'вкладень'}
-            <span className="text-gray-400">{expanded ? '▲' : '▼'}</span>
+            <Ic name="x" size={18} />
           </button>
-
-          {expanded && (
-            <div className="mt-2 space-y-1.5">
-              {t.attachments.map((a) => {
-                if (a.type === 'text') {
-                  return (
-                    <div key={a.id} className="flex items-start gap-2 bg-gray-50 rounded-xl px-3 py-2">
-                      <span className="text-gray-400 mt-0.5 flex-shrink-0">💬</span>
-                      <p className="text-xs text-gray-700 leading-relaxed break-words flex-1">{a.content.replace(/^💬\s*/, '')}</p>
-                    </div>
-                  );
-                }
-                // File: content is "filename\nurl"
-                const newlineIdx = a.content.indexOf('\n');
-                const fileName = newlineIdx !== -1 ? a.content.slice(0, newlineIdx) : 'Файл';
-                const fileUrl = newlineIdx !== -1 ? a.content.slice(newlineIdx + 1) : a.content;
-                const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
-                return (
-                  <div key={a.id} className="bg-blue-50 rounded-xl overflow-hidden">
-                    {isImage && (
-                      <a href={fileUrl} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={fileUrl}
-                          alt={fileName}
-                          className="w-full max-h-48 object-cover"
-                          loading="lazy"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      </a>
-                    )}
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <span className="text-blue-400 flex-shrink-0">{isImage ? '🖼️' : '📄'}</span>
-                      <a
-                        href={fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-700 font-medium truncate flex-1 hover:underline"
-                      >
-                        {fileName}
-                      </a>
-                      <a
-                        href={fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-shrink-0 text-blue-500 hover:text-blue-700 transition-colors p-1"
-                        title="Відкрити файл"
-                        aria-label="Відкрити файл"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Ic name="back" size={14} className="rotate-[-90deg]" />
-                      </a>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
-    </div>
+
+      <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+        {/* Title + status */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <p className="font-medium text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
+          <StatusBadge status={t.status} />
+        </div>
+
+        {/* Person + project */}
+        <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+          <span className="inline-flex items-center gap-1">
+            <Ic name="person" size={11} />
+            {t.userName}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Ic name="folder" size={11} />
+            {t.projectName}
+          </span>
+        </div>
+
+        {/* Time + salary */}
+        <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
+          <span className={`inline-flex items-center gap-1 font-semibold ${displayMinutes > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+            <Ic name="timer" size={11} />
+            {fmtTime(displayMinutes)}
+            {t.status === 'in_progress' && t.activeMinutes > 0 && (
+              <span className="text-blue-400 font-normal">(зараз)</span>
+            )}
+          </span>
+          {taskEarnings !== null && (
+            <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
+              <Ic name="money" size={11} />
+              ~{taskEarnings} ₴
+            </span>
+          )}
+          {t.logCount > 1 && (
+            <span className="inline-flex items-center gap-1 text-gray-400">
+              <Ic name="history" size={11} />
+              {t.logCount} інтервалів
+            </span>
+          )}
+        </div>
+
+        {/* Dates */}
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+          <span className="inline-flex items-center gap-1">
+            <Ic name="play" size={10} />
+            {fmtDate(t.startedAt)}
+          </span>
+          {t.completedAt && (
+            <span className="inline-flex items-center gap-1 text-emerald-600">
+              <Ic name="check" size={10} />
+              {fmtDate(t.completedAt)}
+            </span>
+          )}
+        </div>
+
+        {/* Attachments */}
+        {hasAttachments && (
+          <div className="mt-3 border-t border-gray-100 pt-3 space-y-3">
+
+            {/* Comments — always visible */}
+            {comments.map((a) => (
+              <div key={a.id} className="flex items-start gap-2">
+                <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs">💬</span>
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed break-words flex-1">
+                  {a.content.replace(/^💬\s*/, '')}
+                </p>
+              </div>
+            ))}
+
+            {/* Image grid — tap to open lightbox */}
+            {imageFiles.length > 0 && (
+              <div className={`grid gap-1.5 ${imageFiles.length === 1 ? 'grid-cols-1' : imageFiles.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                {imageFiles.map((f, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setLightbox(f.url)}
+                    className="relative overflow-hidden rounded-xl bg-gray-100 aspect-square focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    aria-label={`Відкрити ${f.displayName}`}
+                  >
+                    <img
+                      src={f.url}
+                      alt={f.displayName}
+                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                      loading="lazy"
+                      onError={(e) => {
+                        const el = e.target as HTMLImageElement;
+                        el.style.display = 'none';
+                        el.parentElement!.innerHTML = '<span class="text-2xl flex items-center justify-center h-full">🖼️</span>';
+                      }}
+                    />
+                    {/* Zoom hint on hover */}
+                    <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-center justify-center">
+                      <div className="opacity-0 hover:opacity-100 transition-opacity bg-black/50 rounded-full p-1.5">
+                        <Ic name="search" size={14} className="text-white" />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Document files */}
+            {docFiles.length > 0 && (
+              <div className="space-y-1.5">
+                {docFiles.map((f, i) => (
+                  <a
+                    key={i}
+                    href={f.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 hover:bg-gray-100 rounded-xl transition-colors group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <Ic name="task" size={16} className="text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{f.displayName}</p>
+                      <p className="text-xs text-gray-400">Натисніть щоб відкрити</p>
+                    </div>
+                    <Ic name="back" size={14} className="text-gray-400 group-hover:text-blue-500 rotate-[-90deg] transition-colors flex-shrink-0" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
