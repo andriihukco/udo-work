@@ -278,12 +278,12 @@ export async function handleDeliverableChoice(ctx: HandlerContext, choice: strin
   if (choice === 'yes') {
     await sessionService.setState(user.id, 'awaiting_deliverable', session.context as Record<string, unknown>);
     await reply(chatId, messageId,
-      `📎 *Надішліть один файл або фото*\n\n` +
+      `📎 *Надішліть файл або фото результату*\n\n` +
       `Підтримується:\n` +
-      `• Фото або зображення\n` +
-      `• Будь-який файл (до 20 МБ)\n` +
-      `• Текстовий опис\n\n` +
-      `_Надсилайте по одному. Після збереження запитаємо чи додати ще._\n` +
+      `• 📷 Фото або альбом фотографій\n` +
+      `• 📄 Будь-який файл (до 20 МБ)\n` +
+      `• 💬 Текстовий коментар\n\n` +
+      `_Можна надіслати кілька файлів по одному або альбомом._\n` +
       `_/cancel — скасувати_`,
       { parse_mode: 'Markdown' });
     return;
@@ -303,20 +303,11 @@ export async function handleDeliverableInput(ctx: HandlerContext, message: Teleg
     return;
   }
 
-  // If this message is part of a media group (album), only process the first
-  // item — subsequent ones in the same album are silently ignored to avoid
-  // flooding the user with "saved" confirmations.
-  const mediaGroupId = (message as any).media_group_id as string | undefined;
-  if (mediaGroupId) {
-    const lastGroupId = (deliverableCtx as any).lastMediaGroupId as string | undefined;
-    if (lastGroupId === mediaGroupId) {
-      // Already processed one item from this album — skip silently
-      return;
-    }
-    // Mark this group as seen so subsequent messages in the album are skipped
-    const ctxWithGroup = { ...deliverableCtx, lastMediaGroupId: mediaGroupId };
-    await sessionService.setState(user.id, 'awaiting_deliverable', ctxWithGroup as unknown as Record<string, unknown>);
-  }
+  // Media group (album) handling:
+  // Each photo in an album arrives as a separate webhook message with the same
+  // media_group_id. We process ALL of them — each gets saved and confirmed.
+  // The user sees one "✅ Збережено" per file, which is clear and honest.
+  // We do NOT deduplicate — the user intentionally sent multiple files.
 
   try {
     if (message.document) {
@@ -340,12 +331,15 @@ export async function handleDeliverableInput(ctx: HandlerContext, message: Teleg
         deliverableCtx.taskId,
       );
       await storageService.saveFileAttachment(deliverableCtx.taskId, url, fileName);
-    } else if (message.text) {
+    } else if (message.text && !message.text.startsWith('/')) {
+      // Plain text comment — save as text attachment
+      // Ignore commands (/cancel etc — handled by router before reaching here)
       await storageService.saveTextAttachment(deliverableCtx.taskId, message.text);
     } else {
+      // Stickers, GIFs, voice, video notes, locations, contacts, etc.
       await telegramClient.sendMessage(
         chatId,
-        '⚠️ Надішліть фото, файл або текстове повідомлення.\n_/cancel — скасувати_',
+        `⚠️ *Непідтримуваний тип*\n\nНадішліть:\n• 📷 Фото\n• 📄 Файл (до 20 МБ)\n• 💬 Текстовий коментар\n\n_/cancel — скасувати_`,
         { parse_mode: 'Markdown' },
       );
       return;
@@ -355,14 +349,13 @@ export async function handleDeliverableInput(ctx: HandlerContext, message: Teleg
     const updatedCtx: AwaitingDeliverableContext = {
       ...deliverableCtx,
       attachmentCount: newCount,
-      ...(mediaGroupId ? { lastMediaGroupId: mediaGroupId } : {}),
-    } as any;
+    };
     await sessionService.setState(user.id, 'awaiting_deliverable_choice', updatedCtx as unknown as Record<string, unknown>);
 
     const countLabel = newCount === 1 ? '1 файл' : `${newCount} файли`;
     await telegramClient.sendMessage(
       chatId,
-      `✅ *Збережено* (${countLabel} загалом)\n\nДодати ще один файл?`,
+      `✅ *Збережено* (${countLabel} загалом)\n\nДодати ще?`,
       { parse_mode: 'Markdown', reply_markup: ADD_MORE_KEYBOARD },
     );
   } catch (err) {

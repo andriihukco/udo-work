@@ -1040,13 +1040,13 @@ function ToggleSwitch({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+      className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
         checked ? 'bg-emerald-500' : 'bg-gray-300'
       }`}
     >
       <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ${
-          checked ? 'translate-x-5' : 'translate-x-0'
+        className={`absolute top-1 h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${
+          checked ? 'translate-x-6' : 'translate-x-1'
         }`}
       />
     </button>
