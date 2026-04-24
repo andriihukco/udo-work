@@ -31,6 +31,7 @@ import {
   ValidationError,
   StorageError,
 } from '@/types/index';
+import { classifyError } from '@/lib/utils/errors';
 import type {
   HandlerContext,
   TelegramMessage,
@@ -47,7 +48,8 @@ import type {
 
 async function sendDbError(chatId: number, err: unknown): Promise<void> {
   logger.error('Employee handler: error', err);
-  await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);
+  const msg = classifyError(err);
+  await telegramClient.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
 }
 
 /** Returns a context-aware employee menu based on the user's current task state. */
@@ -331,13 +333,9 @@ export async function handleDeliverableInput(ctx: HandlerContext, message: Teleg
       `✅ *Збережено* (${countLabel} загалом)\n\nДодати ще?`,
       { parse_mode: 'Markdown', reply_markup: ADD_MORE_KEYBOARD });
   } catch (err) {
-    if (err instanceof FileTooLargeError) {
-      await telegramClient.sendMessage(chatId, MESSAGES.FILE_TOO_LARGE);
-    } else if (err instanceof StorageError) {
-      await telegramClient.sendMessage(chatId, MESSAGES.STORAGE_ERROR);
-    } else {
-      await sendDbError(chatId, err);
-    }
+    logger.error('Employee handler: deliverable input error', err);
+    const msg = classifyError(err);
+    await telegramClient.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
   }
 }
 

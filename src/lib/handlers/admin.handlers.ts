@@ -27,6 +27,7 @@ import {
   MANAGE_USERS_KEYBOARD,
 } from '@/lib/telegram/keyboards';
 import { DuplicateProjectError } from '@/types/index';
+import { classifyError } from '@/lib/utils/errors';
 import type { HandlerContext, TimeSpent, TelegramMessage } from '@/types/index';
 
 const PAGE_SIZE = 10;
@@ -35,9 +36,22 @@ const PAGE_SIZE = 10;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Sends a user-friendly error message based on the actual error type.
+ * Never shows raw stack traces or internal error codes.
+ */
+async function sendSmartError(chatId: number, err: unknown, context?: string): Promise<void> {
+  logger.error(`Admin handler error${context ? ` [${context}]` : ''}`, err);
+  const msg = classifyError(err);
+  await telegramClient.sendMessage(chatId, msg, {
+    parse_mode: 'Markdown',
+    reply_markup: ADMIN_MAIN_MENU,
+  });
+}
+
+// Keep old name as alias so existing call sites work unchanged
 async function sendDbError(chatId: number, err: unknown): Promise<void> {
-  logger.error('Admin handler: database error', err);
-  await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);
+  return sendSmartError(chatId, err);
 }
 
 function esc(text: string): string {
