@@ -434,12 +434,31 @@ export async function handleRecentTasks(ctx: HandlerContext, page = 0): Promise<
       await reply(chatId, messageId, '📭 У вас ще немає завершених задач для повторного використання.', { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
+
+    // Build cumulative time per task by fetching all time logs
+    const taskTimeSummaries = await Promise.all(
+      tasks.map(async (t) => {
+        const logs = await taskService.getTimeLogs(t.id);
+        const time = taskService.calculateTotalTime(logs);
+        return { task: t, time };
+      })
+    );
+
     const totalPages = Math.ceil(total / 10);
     const keyboard = buildRecentTasksKeyboard(tasks, page, totalPages);
-    await reply(chatId, messageId,
-      `🔄 *Оберіть задачу для повторення* (стор. ${page + 1}/${Math.max(1, totalPages)}):\n_Або введіть нову назву_`,
-      { parse_mode: 'Markdown', reply_markup: keyboard },
-    );
+
+    const lines = [`🔄 *Останні задачі* (стор. ${page + 1}/${Math.max(1, totalPages)}):\n`];
+    for (const { task: t, time } of taskTimeSummaries) {
+      const timeStr = time.totalMinutes > 0 ? formatTimeSpent(time) : '—';
+      const statusIcon = t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '🟢' : '⏸️';
+      lines.push(`${statusIcon} *${esc(t.name)}* — ${timeStr}`);
+    }
+    lines.push('\n_Натисніть задачу щоб одразу розпочати її знову_');
+
+    await reply(chatId, messageId, lines.join('\n'), {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
   } catch (err) {
     await sendDbError(chatId, err);
   }
@@ -448,34 +467,63 @@ export async function handleRecentTasks(ctx: HandlerContext, page = 0): Promise<
 export async function handleReuseTask(ctx: HandlerContext, taskId: string): Promise<void> {
   const { user, chatId, messageId } = ctx;
   try {
-    const tasks = await taskService.getTimeLogs(taskId); // just to get task info
-    // Fetch the task directly
+    // Fetch the original task
     const { tasks: found } = await taskService.getTasksWithFilters({ userId: user.id }, 0);
     const original = found.find(t => t.id === taskId);
     if (!original) {
       await reply(chatId, messageId, '⚠️ Задачу не знайдено.', { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
-    // Store project + suggested name in session, ask to confirm or rename
-    const sessionContext: AwaitingTaskNameContext = {
-      selectedProjectId: original.project_id,
-      selectedProjectName: '', // will be filled below
-    };
+
     const project = await projectService.findById(original.project_id);
     if (!project) {
       await reply(chatId, messageId, MESSAGES.NO_ACTIVE_PROJECTS, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
       return;
     }
-    sessionContext.selectedProjectName = project.name;
-    await sessionService.setState(user.id, 'awaiting_task_name', sessionContext as unknown as Record<string, unknown>);
-    await telegramClient.sendMessage(chatId,
-      `📌 Проєкт: *${esc(project.name)}*\n\n` +
-      `Попередня назва: _${esc(original.name)}_\n\n` +
-      `Введіть нову назву або надішліть ту саму:\n_/cancel — скасувати_`,
-      { parse_mode: 'Markdown' },
+
+    // Calculate cumulative time for this task name across all past sessions
+    const allUserTasks = (await taskService.getTasksWithFilters({ userId: user.id }, 0)).tasks;
+    const sameName = allUserTasks.filter(t => t.name === original.name);
+    let cumulativeMinutes = 0;
+    for (const t of sameName) {
+      const logs = await taskService.getTimeLogs(t.id);
+      const time = taskService.calculateTotalTime(logs);
+      cumulativeMinutes += time.totalMinutes;
+    }
+
+    // Start the task immediately — no rename prompt
+    const { task, timeLog } = await taskService.startTask(user.id, original.project_id, original.name);
+    await sessionService.resetSession(user.id);
+
+    const cumulativeStr = cumulativeMinutes > 0
+      ? formatTimeSpent({ hours: Math.floor(cumulativeMinutes / 60), minutes: cumulativeMinutes % 60, totalMinutes: cumulativeMinutes })
+      : null;
+
+    const cumulativeLine = cumulativeStr
+      ? `\n📊 *Загалом по цій задачі:* ${cumulativeStr} (всі сесії)`
+      : '';
+
+    await telegramClient.sendMessage(
+      chatId,
+      `🚀 *Задачу розпочато!*\n\n` +
+      `📌 *Задача:* ${esc(task.name)}\n` +
+      `📁 *Проєкт:* ${esc(project.name)}\n` +
+      `🕐 *Початок:* ${new Date(timeLog.started_at).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}` +
+      cumulativeLine,
+      { parse_mode: 'Markdown', reply_markup: buildContextualEmployeeMenu('in_progress', user.telegram_id) },
     );
+
+    // Notify admins
+    await notificationService
+      .notifyTaskStarted(user, task, project, new Date(timeLog.started_at))
+      .catch((err) => logger.error('notifyTaskStarted failed', err));
+
   } catch (err) {
-    await sendDbError(chatId, err);
+    if (err instanceof ActiveTaskExistsError) {
+      await reply(chatId, messageId, MESSAGES.ACTIVE_TASK_EXISTS, { reply_markup: buildContextualEmployeeMenu('in_progress', user.telegram_id) });
+    } else {
+      await sendDbError(chatId, err);
+    }
   }
 }
 
