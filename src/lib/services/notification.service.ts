@@ -1,8 +1,6 @@
 /**
- * NotificationService — sends admin notifications for key task lifecycle events.
- *
- * Uses plain Markdown (not MarkdownV2) throughout to avoid escaping issues.
- * Requirements: 11.1, 11.2, 11.3, 11.4
+ * NotificationService — sends admin notifications for task lifecycle events.
+ * Uses plain Markdown throughout. Requirements: 11.1–11.4
  */
 
 import { supabase } from '@/lib/db/client';
@@ -12,10 +10,6 @@ import * as telegramClient from '@/lib/telegram/client';
 import { DatabaseError, TelegramApiError } from '@/types/index';
 import type { User, Task, Project, TimeSpent, Attachment } from '@/types/index';
 import type { UserRow } from '@/lib/db/types';
-
-// ---------------------------------------------------------------------------
-// Interface
-// ---------------------------------------------------------------------------
 
 export interface NotificationService {
   notifyTaskStarted(employee: User, task: Task, project: Project, startedAt: Date): Promise<void>;
@@ -32,39 +26,38 @@ function getDisplayName(user: User): string {
   return user.telegram_id?.toString() ?? 'Unknown';
 }
 
-/** Escape characters that break plain Markdown in Telegram: _ * ` [ ] */
+/** Escape plain Markdown special chars: _ * ` [ ] */
 function esc(s: string): string {
   return s.replace(/[_*`[\]]/g, (c) => '\\' + c);
 }
 
 /**
- * Formats a single attachment line for a plain Markdown message.
- * File content is stored as "filename\nurl".
+ * Format one attachment line.
+ * File content stored as "filename\nurl"; text stored as plain string.
  */
 function formatAttachment(a: Attachment, index: number): string {
   if (a.type === 'text') {
-    const display = a.content.replace(/^💬\s*/, '');
-    return `  ${index + 1}. 📝 ${display}`;
+    const display = esc(a.content.replace(/^💬\s*/, '').trim());
+    return `  ${index + 1}. 💬 ${display}`;
   }
 
-  const newlineIdx = a.content.indexOf('\n');
-  if (newlineIdx === -1) {
-    // Legacy bare URL
+  const nl = a.content.indexOf('\n');
+  if (nl === -1) {
     return `  ${index + 1}. [📎 Файл](${a.content})`;
   }
 
-  const fileName = a.content.slice(0, newlineIdx).trim();
-  const url = a.content.slice(newlineIdx + 1).trim();
+  const fileName = a.content.slice(0, nl).trim();
+  const url = a.content.slice(nl + 1).trim();
   const isImage = /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(fileName);
   const icon = isImage ? '🖼' : '📎';
 
-  return `  ${index + 1}. [${icon} ${fileName}](${url})`;
+  return `  ${index + 1}. [${icon} ${esc(fileName)}](${url})`;
 }
 
 async function fetchAdmins(): Promise<User[]> {
   const { data, error } = await supabase
     .from('users')
-    .select('id, telegram_id, role, first_name, username, created_at')
+    .select('id, telegram_id, role, first_name, username, hourly_rate, created_at')
     .eq('role', 'admin');
 
   if (error) {
@@ -118,16 +111,41 @@ export const notificationService: NotificationService = {
     const admins = await fetchAdmins();
     if (admins.length === 0) return;
 
+    const employeeName = esc(getDisplayName(employee));
+    const timeStr = esc(formatTimeSpent(totalTime));
+
+    // Salary line — only if employee has an hourly rate and worked some time
+    let salaryLine = '';
+    if (employee.hourly_rate && totalTime.totalMinutes > 0) {
+      const earned = ((totalTime.totalMinutes / 60) * employee.hourly_rate).toFixed(0);
+      salaryLine = `\n💰 *Заробіток:* ~${earned} грн _(${employee.hourly_rate} грн/год)_`;
+    }
+
+    // Separate comments from file attachments
+    const comments = attachments.filter((a) => a.type === 'text');
+    const files = attachments.filter((a) => a.type === 'file');
+
     let text =
       `✅ *Задачу завершено*\n\n` +
-      `👤 *Співробітник:* ${esc(getDisplayName(employee))}\n` +
+      `👤 *Співробітник:* ${employeeName}\n` +
       `📌 *Задача:* ${esc(task.name)}\n` +
       `📁 *Проєкт:* ${esc(project.name)}\n` +
-      `⏱ *Витрачено:* ${esc(formatTimeSpent(totalTime))}`;
+      `⏱ *Витрачено:* ${timeStr}` +
+      salaryLine;
 
-    if (attachments.length > 0) {
-      const lines = attachments.map((a, i) => formatAttachment(a, i)).join('\n');
-      text += `\n\n📋 *Результати (${attachments.length}):*\n${lines}`;
+    if (comments.length > 0) {
+      text += `\n\n💬 *Коментар:*`;
+      for (const c of comments) {
+        const display = esc(c.content.replace(/^💬\s*/, '').trim());
+        text += `\n${display}`;
+      }
+    }
+
+    if (files.length > 0) {
+      text += `\n\n📎 *Вкладення (${files.length}):*`;
+      files.forEach((a, i) => {
+        text += `\n${formatAttachment(a, i)}`;
+      });
     }
 
     await Promise.all(admins.map((admin) => sendToAdmin(admin, text)));

@@ -278,11 +278,12 @@ export async function handleDeliverableChoice(ctx: HandlerContext, choice: strin
   if (choice === 'yes') {
     await sessionService.setState(user.id, 'awaiting_deliverable', session.context as Record<string, unknown>);
     await reply(chatId, messageId,
-      `📎 *Надішліть файли або фото результату*\n\n` +
-      `Можна надіслати:\n` +
-      `• Одне або кілька фото / файлів\n` +
+      `📎 *Надішліть один файл або фото*\n\n` +
+      `Підтримується:\n` +
+      `• Фото або зображення\n` +
+      `• Будь-який файл (до 20 МБ)\n` +
       `• Текстовий опис\n\n` +
-      `_Надсилайте по одному або альбомом. Після кожного файлу буде запит "додати ще"._\n` +
+      `_Надсилайте по одному. Після збереження запитаємо чи додати ще._\n` +
       `_/cancel — скасувати_`,
       { parse_mode: 'Markdown' });
     return;
@@ -301,37 +302,69 @@ export async function handleDeliverableInput(ctx: HandlerContext, message: Teleg
     await telegramClient.sendMessage(chatId, MESSAGES.SESSION_RESET, { reply_markup: buildContextualEmployeeMenu(null, user.telegram_id) });
     return;
   }
-  try {
-    let savedCount = 0;
 
+  // If this message is part of a media group (album), only process the first
+  // item — subsequent ones in the same album are silently ignored to avoid
+  // flooding the user with "saved" confirmations.
+  const mediaGroupId = (message as any).media_group_id as string | undefined;
+  if (mediaGroupId) {
+    const lastGroupId = (deliverableCtx as any).lastMediaGroupId as string | undefined;
+    if (lastGroupId === mediaGroupId) {
+      // Already processed one item from this album — skip silently
+      return;
+    }
+    // Mark this group as seen so subsequent messages in the album are skipped
+    const ctxWithGroup = { ...deliverableCtx, lastMediaGroupId: mediaGroupId };
+    await sessionService.setState(user.id, 'awaiting_deliverable', ctxWithGroup as unknown as Record<string, unknown>);
+  }
+
+  try {
     if (message.document) {
       const doc = message.document;
-      const url = await storageService.uploadFile(doc.file_id, doc.file_name ?? 'file', doc.file_size ?? 0, user.id, deliverableCtx.taskId);
+      const url = await storageService.uploadFile(
+        doc.file_id,
+        doc.file_name ?? 'file',
+        doc.file_size ?? 0,
+        user.id,
+        deliverableCtx.taskId,
+      );
       await storageService.saveFileAttachment(deliverableCtx.taskId, url, doc.file_name ?? 'file');
-      savedCount = 1;
     } else if (message.photo && message.photo.length > 0) {
-      // Pick the highest-resolution photo variant
       const photo = message.photo[message.photo.length - 1];
       const fileName = `photo_${Date.now()}.jpg`;
-      const url = await storageService.uploadFile(photo.file_id, fileName, photo.file_size ?? 0, user.id, deliverableCtx.taskId);
+      const url = await storageService.uploadFile(
+        photo.file_id,
+        fileName,
+        photo.file_size ?? 0,
+        user.id,
+        deliverableCtx.taskId,
+      );
       await storageService.saveFileAttachment(deliverableCtx.taskId, url, fileName);
-      savedCount = 1;
     } else if (message.text) {
       await storageService.saveTextAttachment(deliverableCtx.taskId, message.text);
-      savedCount = 1;
     } else {
-      await telegramClient.sendMessage(chatId, '⚠️ Будь ласка, надішліть файл, фото або текстове повідомлення.');
+      await telegramClient.sendMessage(
+        chatId,
+        '⚠️ Надішліть фото, файл або текстове повідомлення.\n_/cancel — скасувати_',
+        { parse_mode: 'Markdown' },
+      );
       return;
     }
 
-    const newCount = deliverableCtx.attachmentCount + savedCount;
-    const updatedCtx: AwaitingDeliverableContext = { ...deliverableCtx, attachmentCount: newCount };
+    const newCount = deliverableCtx.attachmentCount + 1;
+    const updatedCtx: AwaitingDeliverableContext = {
+      ...deliverableCtx,
+      attachmentCount: newCount,
+      ...(mediaGroupId ? { lastMediaGroupId: mediaGroupId } : {}),
+    } as any;
     await sessionService.setState(user.id, 'awaiting_deliverable_choice', updatedCtx as unknown as Record<string, unknown>);
 
     const countLabel = newCount === 1 ? '1 файл' : `${newCount} файли`;
-    await telegramClient.sendMessage(chatId,
-      `✅ *Збережено* (${countLabel} загалом)\n\nДодати ще?`,
-      { parse_mode: 'Markdown', reply_markup: ADD_MORE_KEYBOARD });
+    await telegramClient.sendMessage(
+      chatId,
+      `✅ *Збережено* (${countLabel} загалом)\n\nДодати ще один файл?`,
+      { parse_mode: 'Markdown', reply_markup: ADD_MORE_KEYBOARD },
+    );
   } catch (err) {
     logger.error('Employee handler: deliverable input error', err);
     const msg = classifyError(err);
@@ -345,9 +378,12 @@ export async function handleAddMoreOrFinish(ctx: HandlerContext, choice: string)
     await sessionService.setState(user.id, 'awaiting_deliverable', session.context as Record<string, unknown>);
     const deliverableCtx = session.context as AwaitingDeliverableContext | null;
     const count = deliverableCtx?.attachmentCount ?? 0;
-    await reply(chatId, messageId,
-      `📎 Надішліть ще файл або фото:\n_Вже збережено: ${count}_\n_/cancel — скасувати_`,
-      { parse_mode: 'Markdown' });
+    await reply(
+      chatId,
+      messageId,
+      `📎 *Надішліть ще один файл або фото*\n_Вже збережено: ${count}_\n_/cancel — скасувати_`,
+      { parse_mode: 'Markdown' },
+    );
     return;
   }
   if (choice === 'finish') {
