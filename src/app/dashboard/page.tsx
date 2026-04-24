@@ -876,7 +876,7 @@ function TeamTab({ users, stats, authUser, initialSelectedId, onClearSelection, 
         <EmployeeDetail
           user={emp}
           stats={stats}
-          onBack={() => { setSelectedEmployee(null); onClearSelection?.(); }}}
+          onBack={() => { setSelectedEmployee(null); onClearSelection?.(); }}
           onEdit={onEdit}
           onDelete={onDelete}
         />
