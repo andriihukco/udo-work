@@ -216,21 +216,27 @@ async function handleInviteRedeem(chatId: number, user: User, token: string): Pr
 
     const { project, role } = result;
 
-    // If role changed, update the user's role
-    if (user.role !== role) {
-      await userService.updateRole(user.id, role);
+    // Safety guard: never downgrade an existing admin via an invite link.
+    // An admin who opens an employee invite keeps their admin role.
+    const effectiveRole = user.role === 'admin' && role === 'employee' ? 'admin' : role;
+
+    // Only update role if it actually needs to change (and user isn't already admin)
+    if (user.role !== effectiveRole) {
+      await userService.updateRole(user.id, effectiveRole);
     }
 
     // Add to project members
     await membershipService.addMember(project.id, user.id);
 
-    const roleLabel = role === 'admin' ? 'адміна' : 'співробітника';
-    await telegramClient.sendMessage(
-      chatId,
-      `✅ Вас додано до проєкту *${project.name}* як *${roleLabel}*!`,
-      { parse_mode: 'Markdown' },
-    );
-    await showMainMenu(chatId, role, user.telegram_id ?? undefined);
+    const roleLabel = effectiveRole === 'admin' ? 'адміністратора' : 'співробітника';
+    const wasRoleProtected = user.role === 'admin' && role === 'employee';
+
+    const msg = wasRoleProtected
+      ? `✅ Вас додано до проєкту *${project.name}*\\!\n\n_Ваша роль адміністратора збережена\\._`
+      : `✅ Вас додано до проєкту *${project.name}* як *${roleLabel}*\\!`;
+
+    await telegramClient.sendMessage(chatId, msg, { parse_mode: 'MarkdownV2' });
+    await showMainMenu(chatId, effectiveRole, user.telegram_id ?? undefined);
   } catch (err) {
     logger.error('handleInviteRedeem failed', err);
     await telegramClient.sendMessage(chatId, MESSAGES.DB_ERROR);

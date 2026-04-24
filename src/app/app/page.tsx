@@ -97,39 +97,65 @@ function formatTotalTime(totalMinutes: number): string {
 
 function AdminRedirectView({ name, telegramId }: { name: string; telegramId: number }) {
   const dashboardUrl = `/dashboard?tid=${telegramId}`;
+  const [countdown, setCountdown] = useState(2);
 
-  // Use Telegram WebApp navigation if available, otherwise use window.location
-  const openDashboard = () => {
-    const tg = (window as any).Telegram?.WebApp;
-    if (tg?.openLink) {
-      // Replace current WebApp page with dashboard
-      window.location.href = dashboardUrl;
-    } else {
-      window.location.href = dashboardUrl;
-    }
-  };
-
-  // Auto-redirect immediately
   useEffect(() => {
-    window.location.replace(dashboardUrl);
+    const timer = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(timer);
+          window.location.replace(dashboardUrl);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
   }, [dashboardUrl]);
 
+  const firstName = name.split(" ")[0];
+
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center px-6 gap-6" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <div className="text-5xl">🛡️</div>
-      <div className="text-center">
-        <div className="text-lg font-bold mb-1">{name}</div>
-        <div className="text-sm text-slate-400">Адміністратор</div>
-      </div>
-      <div className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-3">
-        <div className="text-sm text-slate-300 text-center mb-1">
-          Переходимо до дашборду...
+    <div
+      className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center px-6 gap-6 animate-fade-in"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      {/* Avatar ring */}
+      <div className="relative flex items-center justify-center">
+        <span className="absolute inline-flex h-24 w-24 rounded-full bg-blue-500 opacity-10 animate-ping" style={{ animationDuration: "2s" }} />
+        <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-4xl shadow-lg shadow-blue-900/40">
+          🛡️
         </div>
+      </div>
+
+      {/* Greeting */}
+      <div className="text-center space-y-1">
+        <div className="text-2xl font-bold tracking-tight">Привіт, {firstName}!</div>
+        <div className="text-sm text-slate-400">Ви увійшли як адміністратор</div>
+      </div>
+
+      {/* Card */}
+      <div className="w-full bg-slate-800/80 border border-slate-700/50 rounded-2xl p-5 flex flex-col gap-4 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-900/60 flex items-center justify-center text-blue-400 text-lg flex-shrink-0">
+            📊
+          </div>
+          <div>
+            <div className="text-sm font-semibold">Панель адміністратора</div>
+            <div className="text-xs text-slate-400">Команда, проєкти, задачі та звіти</div>
+          </div>
+        </div>
+
+        <div className="text-xs text-slate-400 text-center">
+          Перехід через{" "}
+          <span className="text-blue-400 font-bold tabular-nums">{countdown}</span> сек...
+        </div>
+
         <button
-          onClick={openDashboard}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold text-center transition-colors"
+          onClick={() => window.location.replace(dashboardUrl)}
+          className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-xl text-sm font-semibold text-center transition-colors"
         >
-          📊 Відкрити дашборд
+          Відкрити зараз →
         </button>
       </div>
     </div>
@@ -396,17 +422,33 @@ export default function AppPage() {
   // Loading / error screens
   // ---------------------------------------------------------------------------
 
+  // Show nothing (transparent) while we're still determining the role.
+  // This prevents any flash of wrong UI before the role-specific screen appears.
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
-        <div className="text-white text-lg animate-pulse">Завантаження...</div>
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-5 px-6">
+        {/* Pulsing logo mark */}
+        <div className="relative flex items-center justify-center">
+          <span className="absolute inline-flex h-16 w-16 rounded-full bg-blue-500 opacity-20 animate-ping" />
+          <span className="relative inline-flex h-12 w-12 rounded-full bg-blue-600 items-center justify-center text-2xl">
+            ⏱
+          </span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <div className="text-white text-sm font-semibold tracking-wide">U:DO Work</div>
+          <div className="text-slate-500 text-xs">Завантаження...</div>
+        </div>
+        {/* Subtle progress bar */}
+        <div className="w-32 h-0.5 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full bg-blue-500 rounded-full animate-loading-bar" />
+        </div>
       </div>
     );
   }
 
   if (error && !state.user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 p-6">
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 p-6 animate-fade-in">
         <div className="text-center">
           <div className="text-4xl mb-4">⚠️</div>
           <div className="text-white text-base">{error}</div>
@@ -426,7 +468,7 @@ export default function AppPage() {
   // Employee view
   // ---------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col">
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col animate-fade-in">
       {/* Header */}
       <header className="flex items-center justify-between px-4 pt-4 pb-2">
         <div>

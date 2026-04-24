@@ -17,12 +17,13 @@ export async function GET(request: Request): Promise<Response> {
     const weekStart = getStartOfWeek().toISOString();
 
     // Fetch all time_logs (not just this week) so we can compute total time per task
-    const [usersRes, projectsRes, tasksRes, allLogsRes, weekLogsRes] = await Promise.all([
+    const [usersRes, projectsRes, tasksRes, allLogsRes, weekLogsRes, attachmentsRes] = await Promise.all([
       supabase.from('users').select('id, telegram_id, role, first_name, username, hourly_rate, created_at'),
       supabase.from('projects').select('id, name, is_active, created_at'),
       supabase.from('tasks').select('id, project_id, user_id, name, status, created_at'),
       supabase.from('time_logs').select('id, task_id, started_at, paused_at, ended_at'),
       supabase.from('time_logs').select('id, task_id, started_at, paused_at, ended_at').gte('started_at', weekStart),
+      supabase.from('attachments').select('id, task_id, type, content, created_at').order('created_at', { ascending: true }),
     ]);
 
     if (usersRes.error || projectsRes.error || tasksRes.error || allLogsRes.error || weekLogsRes.error) {
@@ -35,6 +36,14 @@ export async function GET(request: Request): Promise<Response> {
     const tasks = tasksRes.data ?? [];
     const allLogs = allLogsRes.data ?? [];
     const weekLogs = weekLogsRes.data ?? [];
+    const allAttachments = attachmentsRes.data ?? [];
+
+    // Group attachments by task_id
+    const attachmentsByTask = new Map<string, any[]>();
+    for (const a of allAttachments as any[]) {
+      if (!attachmentsByTask.has(a.task_id)) attachmentsByTask.set(a.task_id, []);
+      attachmentsByTask.get(a.task_id)!.push(a);
+    }
 
     // Helper: compute total minutes from a set of logs
     const calcMinutes = (logs: any[]): number => {
@@ -119,6 +128,12 @@ export async function GET(request: Request): Promise<Response> {
           totalMinutes,        // all closed intervals
           activeMinutes,       // currently running (if in_progress)
           logCount: taskLogs.length,
+          attachments: (attachmentsByTask.get(t.id) ?? []).map((a: any) => ({
+            id: a.id,
+            type: a.type as 'file' | 'text',
+            content: a.content,
+            created_at: a.created_at,
+          })),
         };
       });
 

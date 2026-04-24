@@ -77,6 +77,7 @@ interface TaskStat {
   totalMinutes: number;
   activeMinutes: number;
   logCount: number;
+  attachments: { id: string; type: 'file' | 'text'; content: string; created_at: string }[];
 }
 
 interface StatsData {
@@ -1139,6 +1140,124 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
   );
 }
 
+// ─── Task Card ────────────────────────────────────────────────────────────────
+
+function TaskCard({ task: t, displayMinutes }: { task: TaskStat; displayMinutes: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasAttachments = t.attachments && t.attachments.length > 0;
+
+  return (
+    <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+      {/* Title + status */}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <p className="font-medium text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
+        <StatusBadge status={t.status} />
+      </div>
+
+      {/* Person + project */}
+      <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+        <span className="inline-flex items-center gap-1">
+          <Ic name="person" size={11} />
+          {t.userName}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Ic name="folder" size={11} />
+          {t.projectName}
+        </span>
+      </div>
+
+      {/* Time */}
+      <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
+        <span className={`inline-flex items-center gap-1 font-semibold ${displayMinutes > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+          <Ic name="timer" size={11} />
+          {fmtTime(displayMinutes)}
+          {t.status === 'in_progress' && t.activeMinutes > 0 && (
+            <span className="text-blue-400 font-normal">(зараз)</span>
+          )}
+        </span>
+        {t.logCount > 1 && (
+          <span className="inline-flex items-center gap-1 text-gray-400">
+            <Ic name="history" size={11} />
+            {t.logCount} інтервалів
+          </span>
+        )}
+      </div>
+
+      {/* Dates */}
+      <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+        <span className="inline-flex items-center gap-1">
+          <Ic name="play" size={10} />
+          {fmtDate(t.startedAt)}
+        </span>
+        {t.completedAt && (
+          <span className="inline-flex items-center gap-1 text-emerald-600">
+            <Ic name="check" size={10} />
+            {fmtDate(t.completedAt)}
+          </span>
+        )}
+      </div>
+
+      {/* Attachments toggle */}
+      {hasAttachments && (
+        <div className="mt-2 border-t border-gray-100 pt-2">
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+          >
+            <Ic name="task" size={12} />
+            {t.attachments.length} {t.attachments.length === 1 ? 'вкладення' : 'вкладень'}
+            <span className="text-gray-400">{expanded ? '▲' : '▼'}</span>
+          </button>
+
+          {expanded && (
+            <div className="mt-2 space-y-1.5">
+              {t.attachments.map((a) => {
+                if (a.type === 'text') {
+                  return (
+                    <div key={a.id} className="flex items-start gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                      <span className="text-gray-400 mt-0.5 flex-shrink-0">💬</span>
+                      <p className="text-xs text-gray-700 leading-relaxed break-words flex-1">{a.content.replace(/^💬\s*/, '')}</p>
+                    </div>
+                  );
+                }
+                // File: content is "filename\nurl"
+                const newlineIdx = a.content.indexOf('\n');
+                const fileName = newlineIdx !== -1 ? a.content.slice(0, newlineIdx) : 'Файл';
+                const fileUrl = newlineIdx !== -1 ? a.content.slice(newlineIdx + 1) : a.content;
+                const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                return (
+                  <div key={a.id} className="flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2">
+                    <span className="text-blue-400 flex-shrink-0">{isImage ? '🖼️' : '📄'}</span>
+                    <a
+                      href={fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-700 font-medium truncate flex-1 hover:underline"
+                    >
+                      {fileName}
+                    </a>
+                    <a
+                      href={fileUrl}
+                      download={fileName}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-shrink-0 text-blue-500 hover:text-blue-700 transition-colors"
+                      title="Завантажити"
+                      aria-label="Завантажити файл"
+                    >
+                      <Ic name="back" size={14} className="rotate-[-90deg]" />
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Tasks Tab ────────────────────────────────────────────────────────────────
 
 function TasksTab({ tasks }: { tasks: TaskStat[] }) {
@@ -1207,56 +1326,7 @@ function TasksTab({ tasks }: { tasks: TaskStat[] }) {
           {filtered.map((t) => {
             const displayMinutes = t.totalMinutes + (t.status === 'in_progress' ? t.activeMinutes : 0);
             return (
-              <div key={t.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
-                {/* Title + status */}
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <p className="font-medium text-gray-800 flex-1 min-w-0 leading-snug">{t.name}</p>
-                  <StatusBadge status={t.status} />
-                </div>
-
-                {/* Person + project */}
-                <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-                  <span className="inline-flex items-center gap-1">
-                    <Ic name="person" size={11} />
-                    {t.userName}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Ic name="folder" size={11} />
-                    {t.projectName}
-                  </span>
-                </div>
-
-                {/* Time */}
-                <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
-                  <span className={`inline-flex items-center gap-1 font-semibold ${displayMinutes > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                    <Ic name="timer" size={11} />
-                    {fmtTime(displayMinutes)}
-                    {t.status === 'in_progress' && t.activeMinutes > 0 && (
-                      <span className="text-blue-400 font-normal">(зараз)</span>
-                    )}
-                  </span>
-                  {t.logCount > 1 && (
-                    <span className="inline-flex items-center gap-1 text-gray-400">
-                      <Ic name="history" size={11} />
-                      {t.logCount} інтервалів
-                    </span>
-                  )}
-                </div>
-
-                {/* Dates */}
-                <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
-                  <span className="inline-flex items-center gap-1">
-                    <Ic name="play" size={10} />
-                    {fmtDate(t.startedAt)}
-                  </span>
-                  {t.completedAt && (
-                    <span className="inline-flex items-center gap-1 text-emerald-600">
-                      <Ic name="check" size={10} />
-                      {fmtDate(t.completedAt)}
-                    </span>
-                  )}
-                </div>
-              </div>
+              <TaskCard key={t.id} task={t} displayMinutes={displayMinutes} />
             );
           })}
         </div>

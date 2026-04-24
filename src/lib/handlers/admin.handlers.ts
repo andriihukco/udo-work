@@ -347,7 +347,16 @@ export async function handleTaskDetail(ctx: HandlerContext, taskId: string): Pro
         if (a.type === 'text') {
           lines.push(`  💬 ${esc(a.content)}`);
         } else {
-          lines.push(`  📄 [Файл](${a.content})`);
+          // Content is stored as "filename\nurl"
+          const newlineIdx = a.content.indexOf('\n');
+          if (newlineIdx !== -1) {
+            const fileName = a.content.slice(0, newlineIdx);
+            const fileUrl = a.content.slice(newlineIdx + 1);
+            lines.push(`  📄 [${esc(fileName)}](${fileUrl})`);
+          } else {
+            // Legacy format: content is just the URL
+            lines.push(`  📄 [Файл](${a.content})`);
+          }
         }
       }
     }
@@ -905,19 +914,28 @@ export async function handleGenerateInviteLink(ctx: HandlerContext, projectId: s
     }
 
     const link = await membershipService.createInviteLink(projectId, role, user.id);
-    const roleLabel = role === 'admin' ? 'адміна' : 'співробітника';
+    const roleLabel = role === 'admin' ? 'адміністратора' : 'співробітника';
+    const roleEmoji = role === 'admin' ? '🔑' : '👷';
 
     await reply(chatId, messageId,
-      `🔗 *Посилання-запрошення*\n\n` +
+      `🔗 *Запрошення до проєкту*\n\n` +
       `📁 Проєкт: *${esc(project.name)}*\n` +
-      `👤 Роль: *${roleLabel}*\n` +
-      `⏳ Дійсне: 7 днів\n\n` +
-      `_Натисніть кнопку нижче, щоб скопіювати або поділитись посиланням._`,
+      `${roleEmoji} Роль: *${roleLabel}*\n` +
+      `⏳ Дійсне: *7 днів* · одноразове\n\n` +
+      `*Посилання для запрошення:*\n` +
+      `\`${link}\`\n\n` +
+      `📋 *Як запросити людину:*\n` +
+      `1\\. Скопіюйте посилання вище\n` +
+      `2\\. Надішліть його новому ${roleLabel === 'адміністратора' ? 'адміну' : 'співробітнику'} у будь-якому месенджері\n` +
+      `3\\. Людина відкриває посилання → Telegram запускає бота\n` +
+      `4\\. Бот автоматично додає їх до проєкту як *${roleLabel}*\n\n` +
+      `_⚠️ Посилання одноразове — після використання стає недійсним_`,
       {
-        parse_mode: 'Markdown',
+        parse_mode: 'MarkdownV2',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🔗 Запросити', url: link }],
+            [{ text: `${roleEmoji} Відкрити запрошення`, url: link }],
+            [{ text: '🔗 Ще одне запрошення', callback_data: `invite_role:${projectId}:${role}` }],
             [{ text: '◀️ Головне меню', callback_data: 'action:back_to_main' }],
           ],
         },
