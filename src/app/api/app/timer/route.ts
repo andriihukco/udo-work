@@ -173,6 +173,33 @@ export async function POST(request: Request): Promise<Response> {
         return Response.json({ ok: true, task, totalTime });
       }
 
+      case 'complete_with_comment': {
+        // Complete task and optionally save a text comment
+        const { comment } = body;
+        const { task, totalTime } = await taskService.completeTask(user.id);
+        if (comment?.trim()) {
+          await storageService.saveTextAttachment(task.id, `💬 ${comment.trim()}`);
+        }
+        const attachments = await storageService.getAttachments(task.id);
+        const project = await projectService.findById(task.project_id);
+        if (project) {
+          notificationService
+            .notifyTaskCompleted(user as any, task, project, totalTime, attachments)
+            .catch((err) => logger.error('notifyTaskCompleted failed', err));
+        }
+        return Response.json({ ok: true, task, totalTime });
+      }
+
+      case 'attach_comment': {
+        // Save a text comment to an already-completed task
+        const { taskId, comment } = body;
+        if (!taskId || !comment?.trim()) {
+          return Response.json({ error: 'taskId and comment required' }, { status: 400 });
+        }
+        await storageService.saveTextAttachment(taskId, `💬 ${comment.trim()}`);
+        return Response.json({ ok: true });
+      }
+
       default:
         return Response.json({ error: 'Unknown action' }, { status: 400 });
     }

@@ -1043,13 +1043,25 @@ function ToggleSwitch({
   label?: string;
 }) {
   return (
-    <button
+    <div
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      tabIndex={0}
       onClick={() => onChange(!checked)}
-      style={{ width: 44, height: 24, borderRadius: 12, padding: 0, border: 'none', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s', background: checked ? '#10b981' : '#d1d5db', position: 'relative', display: 'inline-flex', alignItems: 'center' }}
-      className="focus-visible:ring-2 focus-visible:ring-blue-500 focus:outline-none"
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onChange(!checked)}
+      style={{
+        width: 44,
+        height: 24,
+        borderRadius: 12,
+        flexShrink: 0,
+        cursor: 'pointer',
+        transition: 'background 0.2s',
+        background: checked ? '#10b981' : '#d1d5db',
+        position: 'relative',
+        display: 'inline-block',
+        outline: 'none',
+      }}
     >
       <span
         style={{
@@ -1060,12 +1072,12 @@ function ToggleSwitch({
           height: 18,
           borderRadius: '50%',
           background: 'white',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
           transition: 'left 0.2s',
           display: 'block',
         }}
       />
-    </button>
+    </div>
   );
 }
 

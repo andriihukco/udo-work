@@ -257,13 +257,13 @@ export async function route(
         await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
         return;
       }
+      // /skip in comment state → go straight to file prompt
       await employeeHandlers.handleTaskCommentInput(ctx, text);
       return;
     }
 
     if (state === 'awaiting_deliverable_choice') {
-      // Employee pressed a reply keyboard button while in deliverable_choice state
-      // — treat as "finish" to avoid getting stuck
+      // Legacy state — treat any text as "finish" to avoid getting stuck
       if (user.role !== 'employee') {
         await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
         return;
@@ -273,9 +273,13 @@ export async function route(
     }
 
     if (state === 'awaiting_deliverable') {
-      // Employee-only state
       if (user.role !== 'employee') {
         await telegramClient.sendMessage(chatId, MESSAGES.NO_PERMISSION);
+        return;
+      }
+      // /skip in deliverable state → finalise task without more files
+      if (text === '/skip') {
+        await employeeHandlers.handleAddMoreOrFinish(ctx, 'finish');
         return;
       }
       await employeeHandlers.handleDeliverableInput(ctx, message);

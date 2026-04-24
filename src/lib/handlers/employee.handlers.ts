@@ -242,7 +242,11 @@ export async function handleCompleteTask(ctx: HandlerContext): Promise<void> {
     const sessionCtx: AwaitingDeliverableContext = { taskId: activeTask.id, taskName: activeTask.name, attachmentCount: 0 };
     await sessionService.setState(user.id, 'awaiting_task_comment', sessionCtx as unknown as Record<string, unknown>);
     await reply(chatId, messageId,
-      `✅ *${esc(activeTask.name)}*\n\n💬 Додайте короткий коментар до задачі:\n_(що було зроблено, результат тощо)_\n\n_/skip — пропустити_`,
+      `✅ *${esc(activeTask.name)}*\n\n` +
+      `💬 Додайте коментар або одразу надішліть файл/фото:\n\n` +
+      `• Текст → збережеться як коментар\n` +
+      `• Фото або файл → збережеться як вкладення\n\n` +
+      `_/skip — завершити без вкладень_`,
       { parse_mode: 'Markdown' },
     );
   } catch (err) {
@@ -260,37 +264,21 @@ export async function handleTaskCommentInput(ctx: HandlerContext, text: string):
   }
   try {
     if (text !== '/skip' && text.trim()) {
-      // Save comment as a text attachment tagged as comment
       await storageService.saveTextAttachment(deliverableCtx.taskId, `💬 ${text.trim()}`);
     }
-    await sessionService.setState(user.id, 'awaiting_deliverable_choice', deliverableCtx as unknown as Record<string, unknown>);
+    // After comment, go straight to awaiting_deliverable — ask for files
+    const updatedCtx: AwaitingDeliverableContext = { ...deliverableCtx, attachmentCount: text !== '/skip' && text.trim() ? 1 : 0 };
+    await sessionService.setState(user.id, 'awaiting_deliverable', updatedCtx as unknown as Record<string, unknown>);
     await telegramClient.sendMessage(chatId,
-      `📎 *${esc(deliverableCtx.taskName)}*\n\n${MESSAGES.ATTACH_DELIVERABLE_PROMPT}`,
-      { parse_mode: 'Markdown', reply_markup: DELIVERABLE_CHOICE_KEYBOARD },
+      `📎 *${esc(deliverableCtx.taskName)}*\n\n` +
+      `Надішліть фото або файл результату:\n` +
+      `• 📷 Фото\n` +
+      `• 📄 Файл (до 20 МБ)\n\n` +
+      `_/skip — завершити задачу_`,
+      { parse_mode: 'Markdown' },
     );
   } catch (err) {
     await sendDbError(chatId, err);
-  }
-}
-
-export async function handleDeliverableChoice(ctx: HandlerContext, choice: string): Promise<void> {
-  const { user, session, chatId, messageId } = ctx;
-  if (choice === 'yes') {
-    await sessionService.setState(user.id, 'awaiting_deliverable', session.context as Record<string, unknown>);
-    await reply(chatId, messageId,
-      `📎 *Надішліть файл або фото результату*\n\n` +
-      `Підтримується:\n` +
-      `• 📷 Фото або альбом фотографій\n` +
-      `• 📄 Будь-який файл (до 20 МБ)\n` +
-      `• 💬 Текстовий коментар\n\n` +
-      `_Можна надіслати кілька файлів по одному або альбомом._\n` +
-      `_/cancel — скасувати_`,
-      { parse_mode: 'Markdown' });
-    return;
-  }
-  if (choice === 'skip') {
-    await finaliseTask(ctx);
-    return;
   }
 }
 
