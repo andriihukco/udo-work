@@ -126,43 +126,51 @@ function AdminRedirectView({ name, telegramId }: { name: string; telegramId: num
 }
 
 // ---------------------------------------------------------------------------
-// Complete task panel — comment + file attachments
+// Complete task panel — multi-step: results → attachments → preview → submit
 // ---------------------------------------------------------------------------
 
 interface CompletePanelProps {
   taskId: string;
   taskName: string;
+  projectName: string;
+  elapsedSeconds: number;
   telegramId: number;
   onDone: () => void;
 }
 
-function CompletePanel({ taskId, taskName, telegramId, onDone }: CompletePanelProps) {
-  const [comment, setComment] = useState("");
+const RESULT_EXAMPLES = [
+  "Зверстав макет головної сторінки",
+  "Виправив баг з авторизацією",
+  "Написав тести для модуля оплати",
+  "Провів зустріч з клієнтом",
+];
+
+function CompletePanel({ taskId, taskName, projectName, elapsedSeconds, telegramId, onDone }: CompletePanelProps) {
+  const [step, setStep] = useState<"results" | "attachments" | "preview">("results");
+  const [resultText, setResultText] = useState("");
   const [uploads, setUploads] = useState<UploadedFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadFile = async (file: File) => {
-    const entry: UploadedFile = { name: file.name, status: "uploading" };
-    setUploads((prev) => [...prev, entry]);
-
+    const key = `${file.name}-${file.size}`;
+    setUploads((prev) => [...prev, { name: file.name, status: "uploading" }]);
     const fd = new FormData();
     fd.append("file", file);
     fd.append("taskId", taskId);
     fd.append("telegramId", String(telegramId));
-
     try {
       const res = await fetch("/api/app/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
-        const msg = data.error === "file_too_large" ? "Файл > 20 МБ" : "Помилка завантаження";
+        const msg = data.error === "file_too_large" ? "Файл > 20 МБ" : "Помилка";
         setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: "error", error: msg } : u));
       } else {
         setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: "done" } : u));
       }
     } catch {
-      setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: "error", error: "Помилка мережі" } : u));
+      setUploads((prev) => prev.map((u) => u.name === file.name ? { ...u, status: "error", error: "Мережа" } : u));
     }
   };
 
@@ -171,62 +179,113 @@ function CompletePanel({ taskId, taskName, telegramId, onDone }: CompletePanelPr
     Array.from(files).forEach(uploadFile);
   };
 
-  const handleFinish = async () => {
+  const removeUpload = (name: string) => {
+    setUploads((prev) => prev.filter((u) => u.name !== name));
+  };
+
+  const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      if (comment.trim()) {
+      if (resultText.trim()) {
         await fetch("/api/app/timer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ telegramId, action: "attach_comment", taskId, comment: comment.trim() }),
+          body: JSON.stringify({ telegramId, action: "attach_comment", taskId, comment: resultText.trim() }),
         });
       }
       setSubmitted(true);
-      setTimeout(onDone, 1200);
+      setTimeout(onDone, 1400);
     } finally {
       setSubmitting(false);
     }
   };
 
+  const uploadingCount = uploads.filter((u) => u.status === "uploading").length;
+  const doneCount = uploads.filter((u) => u.status === "done").length;
+
   if (submitted) {
     return (
-      <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col items-center gap-3 animate-fade-in">
-        <div className="text-4xl">🎉</div>
+      <section className="w-full bg-slate-800 rounded-2xl p-6 flex flex-col items-center gap-3 animate-fade-in">
+        <div className="text-5xl">🎉</div>
         <div className="text-base font-semibold text-green-400">Задачу завершено!</div>
+        <div className="text-xs text-slate-400 text-center">{taskName}</div>
       </section>
     );
   }
 
-  const doneCount = uploads.filter((u) => u.status === "done").length;
-  const uploadingCount = uploads.filter((u) => u.status === "uploading").length;
+  // ── Step 1: Results ──────────────────────────────────────────────────────
+  if (step === "results") {
+    return (
+      <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4 animate-fade-in">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold flex-shrink-0">1</div>
+          <div>
+            <div className="text-sm font-semibold">Що зроблено?</div>
+            <div className="text-xs text-slate-400">{taskName} · {projectName}</div>
+          </div>
+        </div>
 
-  return (
-    <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4 animate-fade-in">
-      <div>
-        <div className="text-xs text-slate-400 mb-0.5">Завершення задачі</div>
-        <div className="text-sm font-semibold text-white truncate">{taskName}</div>
-      </div>
-
-      {/* Comment */}
-      <div>
-        <label className="text-xs text-slate-400 mb-1 block">💬 Коментар (необов'язково)</label>
         <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Що було зроблено, результат..."
-          rows={2}
-          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+          value={resultText}
+          onChange={(e) => setResultText(e.target.value)}
+          placeholder="Опишіть результат роботи..."
+          rows={3}
+          autoFocus
+          className="w-full bg-slate-700 border border-slate-600 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
         />
-      </div>
 
-      {/* File upload */}
-      <div>
-        <label className="text-xs text-slate-400 mb-1 block">📎 Вкладення (необов'язково)</label>
+        {/* Quick-fill examples */}
+        <div className="flex flex-col gap-1.5">
+          <div className="text-xs text-slate-500">Приклади:</div>
+          <div className="flex flex-wrap gap-1.5">
+            {RESULT_EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                onClick={() => setResultText(ex)}
+                className="text-xs px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={() => setStep("attachments")}
+            disabled={!resultText.trim()}
+            className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-xl text-sm font-semibold transition-colors"
+          >
+            Далі →
+          </button>
+          <button
+            onClick={() => setStep("attachments")}
+            className="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm text-slate-400 transition-colors"
+          >
+            Пропустити
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Step 2: Attachments ──────────────────────────────────────────────────
+  if (step === "attachments") {
+    return (
+      <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4 animate-fade-in">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold flex-shrink-0">2</div>
+          <div>
+            <div className="text-sm font-semibold">Додати файли?</div>
+            <div className="text-xs text-slate-400">Фото, скріншоти, документи</div>
+          </div>
+        </div>
+
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="w-full py-2.5 border border-dashed border-slate-600 rounded-xl text-sm text-slate-400 hover:border-blue-500 hover:text-blue-400 transition-colors flex items-center justify-center gap-2"
+          className="w-full py-3 border-2 border-dashed border-slate-600 rounded-xl text-sm text-slate-400 hover:border-blue-500 hover:text-blue-400 transition-colors flex items-center justify-center gap-2"
         >
-          <span>+</span> Додати фото або файл
+          <span className="text-lg">+</span> Вибрати файли
         </button>
         <input
           ref={fileInputRef}
@@ -236,44 +295,102 @@ function CompletePanel({ taskId, taskName, telegramId, onDone }: CompletePanelPr
           className="hidden"
           onChange={(e) => handleFiles(e.target.files)}
         />
+
+        {uploads.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {uploads.map((u, i) => (
+              <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${
+                u.status === "done" ? "bg-green-900/40 text-green-400"
+                : u.status === "error" ? "bg-red-900/40 text-red-400"
+                : "bg-slate-700 text-slate-400"
+              }`}>
+                <span className="flex-shrink-0">{u.status === "done" ? "✅" : u.status === "error" ? "❌" : "⏳"}</span>
+                <span className="truncate flex-1">{u.name}</span>
+                {u.status !== "uploading" && (
+                  <button onClick={() => removeUpload(u.name)} className="flex-shrink-0 text-slate-500 hover:text-red-400 transition-colors">✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={() => setStep("preview")}
+            disabled={uploadingCount > 0}
+            className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-xl text-sm font-semibold transition-colors"
+          >
+            {uploadingCount > 0 ? `Завантаження ${uploadingCount}...` : "Далі →"}
+          </button>
+          <button
+            onClick={() => setStep("results")}
+            className="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm text-slate-400 transition-colors"
+          >
+            ← Назад
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Step 3: Preview ──────────────────────────────────────────────────────
+  return (
+    <section className="w-full bg-slate-800 rounded-2xl p-5 flex flex-col gap-4 animate-fade-in">
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center text-xs font-bold flex-shrink-0">✓</div>
+        <div className="text-sm font-semibold">Перевірте перед відправкою</div>
       </div>
 
-      {/* Upload list */}
-      {uploads.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {uploads.map((u, i) => (
-            <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${
-              u.status === "done" ? "bg-green-900/40 text-green-400"
-              : u.status === "error" ? "bg-red-900/40 text-red-400"
-              : "bg-slate-700 text-slate-400"
-            }`}>
-              <span className="flex-shrink-0">
-                {u.status === "done" ? "✅" : u.status === "error" ? "❌" : "⏳"}
-              </span>
-              <span className="truncate flex-1">{u.name}</span>
-              {u.error && <span className="flex-shrink-0 text-red-400">{u.error}</span>}
-            </div>
-          ))}
+      {/* Task info */}
+      <div className="bg-slate-700/60 rounded-xl p-3 flex flex-col gap-1">
+        <div className="text-xs text-slate-400">Задача</div>
+        <div className="text-sm font-medium text-white">{taskName}</div>
+        <div className="text-xs text-slate-400">{projectName} · {formatHMS(elapsedSeconds)}</div>
+      </div>
+
+      {/* Result */}
+      {resultText.trim() ? (
+        <div className="bg-slate-700/60 rounded-xl p-3">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-xs text-slate-400">Результат</div>
+            <button onClick={() => setStep("results")} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">Змінити</button>
+          </div>
+          <div className="text-sm text-white leading-relaxed">{resultText}</div>
         </div>
+      ) : (
+        <button onClick={() => setStep("results")} className="text-xs text-slate-500 hover:text-blue-400 transition-colors text-left">
+          + Додати опис результату
+        </button>
       )}
 
-      {/* Actions */}
-      <div className="flex gap-3 pt-1">
-        <button
-          onClick={handleFinish}
-          disabled={submitting || uploadingCount > 0}
-          className="flex-1 py-3 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-xl text-sm font-semibold transition-colors"
-        >
-          {uploadingCount > 0 ? `Завантаження ${uploadingCount}...` : submitting ? "Збереження..." : doneCount > 0 ? `✅ Завершити (${doneCount} файл${doneCount > 1 ? "и" : ""})` : "✅ Завершити"}
+      {/* Attachments */}
+      {doneCount > 0 ? (
+        <div className="bg-slate-700/60 rounded-xl p-3">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-xs text-slate-400">Вкладення ({doneCount})</div>
+            <button onClick={() => setStep("attachments")} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">Змінити</button>
+          </div>
+          <div className="flex flex-col gap-1">
+            {uploads.filter((u) => u.status === "done").map((u, i) => (
+              <div key={i} className="text-xs text-green-400 flex items-center gap-1.5">
+                <span>📎</span><span className="truncate">{u.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setStep("attachments")} className="text-xs text-slate-500 hover:text-blue-400 transition-colors text-left">
+          + Додати файли або фото
         </button>
-        <button
-          onClick={handleFinish}
-          disabled={submitting || uploadingCount > 0}
-          className="px-4 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-xl text-sm text-slate-400 transition-colors"
-        >
-          Пропустити
-        </button>
-      </div>
+      )}
+
+      <button
+        onClick={handleSubmit}
+        disabled={submitting}
+        className="w-full py-3.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-xl text-sm font-semibold transition-colors"
+      >
+        {submitting ? "Збереження..." : "✅ Надіслати та завершити"}
+      </button>
     </section>
   );
 }
@@ -297,7 +414,7 @@ export default function AppPage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // After completing — show attachment panel for the just-completed task
-  const [completedTask, setCompletedTask] = useState<{ id: string; name: string } | null>(null);
+  const [completedTask, setCompletedTask] = useState<{ id: string; name: string; projectName: string; elapsedSeconds: number } | null>(null);
 
   // ---------------------------------------------------------------------------
   // Init
@@ -396,11 +513,15 @@ export default function AppPage() {
 
   const handleComplete = async () => {
     if (!state.activeTask) return;
-    const taskInfo = { id: state.activeTask.id, name: state.activeTask.name };
+    const taskInfo = {
+      id: state.activeTask.id,
+      name: state.activeTask.name,
+      projectName: state.projects.find((p) => p.id === state.activeTask!.projectId)?.name ?? "",
+      elapsedSeconds,
+    };
     const result = await doAction("complete");
     if (result?.ok) {
       setCompletedTask(taskInfo);
-      // Refresh state so active task is cleared
       if (telegramId) fetchState(telegramId);
     }
   };
@@ -465,6 +586,8 @@ export default function AppPage() {
           <CompletePanel
             taskId={completedTask.id}
             taskName={completedTask.name}
+            projectName={completedTask.projectName}
+            elapsedSeconds={completedTask.elapsedSeconds}
             telegramId={telegramId!}
             onDone={() => {
               setCompletedTask(null);

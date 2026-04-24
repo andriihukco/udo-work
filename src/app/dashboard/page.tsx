@@ -1095,9 +1095,16 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [recentlyToggled, setRecentlyToggled] = useState<string | null>(null);
 
   function getProjStat(id: string): ProjStat | undefined {
     return stats?.projects.find((p) => p.id === id);
+  }
+
+  async function handleToggle(id: string, isActive: boolean) {
+    setRecentlyToggled(id);
+    await onToggle(id, isActive);
+    setTimeout(() => setRecentlyToggled(null), 700);
   }
 
   const sorted = [...projects].sort((a, b) => {
@@ -1153,7 +1160,12 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
             const isConfirming = confirmDelete === p.id;
 
             return (
-              <div key={p.id} className={`bg-white rounded-2xl px-4 py-3 shadow-sm transition-opacity ${!p.is_active ? 'opacity-60' : ''}`}>
+              <div
+                key={p.id}
+                className={`bg-white rounded-2xl px-4 py-3 shadow-sm transition-all duration-300 ${
+                  !p.is_active ? 'opacity-60' : ''
+                } ${recentlyToggled === p.id ? 'animate-highlight' : ''}`}
+              >
                 <div className="flex items-center gap-3">
                   {/* Folder avatar — open when active, closed when inactive */}
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${p.is_active ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
@@ -1195,7 +1207,7 @@ function ProjectsTab({ projects, stats, onCreate, onToggle, onDelete }: Projects
                     <div className="flex items-center gap-2">
                       <ToggleSwitch
                         checked={p.is_active}
-                        onChange={(v) => onToggle(p.id, v)}
+                        onChange={(v) => handleToggle(p.id, v)}
                         label={p.is_active ? 'Деактивувати проєкт' : 'Активувати проєкт'}
                       />
                       <button
