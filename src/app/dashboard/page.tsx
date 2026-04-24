@@ -128,6 +128,22 @@ function fmtTime(minutes: number): string {
   return `${h}г ${m}хв`;
 }
 
+/**
+ * Format a salary amount consistently.
+ * Uses one decimal place so per-task and total values always add up visually.
+ * e.g. 3.5 → "3.5", 8.17 → "8.2", 100.0 → "100"
+ */
+function fmtMoney(amount: number): string {
+  // Show one decimal only when there's a fractional part
+  const rounded = Math.round(amount * 10) / 10;
+  return rounded % 1 === 0 ? String(rounded) : rounded.toFixed(1);
+}
+
+/** Calculate raw earnings (not rounded) from minutes and hourly rate. */
+function calcEarnings(minutes: number, hourlyRate: number): number {
+  return (minutes / 60) * hourlyRate;
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -597,7 +613,7 @@ function OverviewTab({
                 <div className="text-right flex-shrink-0">
                   <div className="text-sm font-bold text-blue-600 tabular-nums">{fmtTime(emp.weeklyMinutes)}</div>
                   {emp.hourlyRate && emp.weeklyMinutes > 0 && (
-                    <div className="text-xs text-emerald-600 font-medium">{Math.round((emp.weeklyMinutes / 60) * emp.hourlyRate)}₴</div>
+                    <div className="text-xs text-emerald-600 font-medium">{fmtMoney(calcEarnings(emp.weeklyMinutes, emp.hourlyRate))}₴</div>
                   )}
                 </div>
                 <Ic name="chevron" size={14} className="text-gray-300 flex-shrink-0" />
@@ -654,7 +670,7 @@ function EmployeeDetail({ user, stats, onBack, onEdit, onDelete }: EmployeeDetai
 
   const totalMinutes = empStat?.weeklyMinutes ?? 0;
   const weeklyEarnings = user.hourly_rate && totalMinutes > 0
-    ? Math.round((totalMinutes / 60) * user.hourly_rate)
+    ? fmtMoney(calcEarnings(totalMinutes, user.hourly_rate))
     : null;
 
   return (
@@ -707,7 +723,7 @@ function EmployeeDetail({ user, stats, onBack, onEdit, onDelete }: EmployeeDetai
             {tasks.map((t) => {
               const mins = t.totalMinutes + (t.status === 'in_progress' ? t.activeMinutes : 0);
               const earned = user.hourly_rate && mins > 0
-                ? Math.round((mins / 60) * user.hourly_rate)
+                ? fmtMoney(calcEarnings(mins, user.hourly_rate))
                 : null;
               return (
                 <div key={t.id} className="bg-white rounded-xl px-3 py-2.5 shadow-sm">

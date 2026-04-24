@@ -117,8 +117,10 @@ export const notificationService: NotificationService = {
     // Salary line — only if employee has an hourly rate and worked some time
     let salaryLine = '';
     if (employee.hourly_rate && totalTime.totalMinutes > 0) {
-      const earned = ((totalTime.totalMinutes / 60) * employee.hourly_rate).toFixed(0);
-      salaryLine = `\n💰 *Заробіток:* ~${earned} грн _(${employee.hourly_rate} грн/год)_`;
+      const earned = (totalTime.totalMinutes / 60) * employee.hourly_rate;
+      // Show one decimal to be consistent with the dashboard display
+      const earnedStr = earned % 1 < 0.05 ? Math.round(earned).toString() : earned.toFixed(1);
+      salaryLine = `\n💰 *Заробіток:* ~${earnedStr} грн _(${employee.hourly_rate} грн/год)_`;
     }
 
     // Separate comments from file attachments

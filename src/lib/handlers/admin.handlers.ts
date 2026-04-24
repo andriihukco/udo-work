@@ -58,6 +58,13 @@ function esc(text: string): string {
   return text.replace(/[_*`[\]]/g, (c) => '\\' + c);
 }
 
+/** Format earnings with one decimal place for consistency (avoids rounding paradox). */
+function fmtEarnings(minutes: number, rate: number): string {
+  const raw = (minutes / 60) * rate;
+  const rounded = Math.round(raw * 10) / 10;
+  return rounded % 1 === 0 ? String(rounded) : rounded.toFixed(1);
+}
+
 function statusEmoji(status: string): string {
   return status === 'in_progress' ? '▶️' : status === 'paused' ? '⏸' : '✅';
 }
@@ -190,7 +197,7 @@ export async function handleEmployees(ctx: HandlerContext): Promise<void> {
       const usernameStr = emp.username ? ` @${emp.username}` : '';
       let salaryStr = '';
       if (emp.hourly_rate && emp.weeklyMinutes > 0) {
-        const earned = ((emp.weeklyMinutes / 60) * emp.hourly_rate).toFixed(0);
+        const earned = fmtEarnings(emp.weeklyMinutes, emp.hourly_rate);
         salaryStr = ` · 💰 ~${earned} грн`;
       } else if (emp.hourly_rate) {
         salaryStr = ` · 💵 ${emp.hourly_rate} грн/год`;
@@ -243,7 +250,7 @@ export async function handleEmployeeDetail(ctx: HandlerContext, userId: string):
       const timeStr = formatTimeSpent(a.timeSpent);
       let salaryStr = '';
       if (employee?.hourly_rate && a.timeSpent.totalMinutes > 0) {
-        const earned = ((a.timeSpent.totalMinutes / 60) * employee.hourly_rate).toFixed(0);
+        const earned = fmtEarnings(a.timeSpent.totalMinutes, employee.hourly_rate);
         salaryStr = ` · 💰 ~${earned} грн`;
       }
       lines.push(`${statusEmoji(a.status)} *${esc(a.taskName)}*`);
@@ -255,7 +262,7 @@ export async function handleEmployeeDetail(ctx: HandlerContext, userId: string):
     lines.push(`─────────────────`);
     lines.push(`⏱️ *Загалом:* ${formatTimeSpent(totalTime)}`);
     if (employee?.hourly_rate && totalMin > 0) {
-      const earnings = ((totalMin / 60) * employee.hourly_rate).toFixed(0);
+      const earnings = fmtEarnings(totalMin, employee.hourly_rate);
       lines.push(`💰 *Заробіток:* ~${earnings} грн _(${employee.hourly_rate} грн/год)_`);
     }
 
