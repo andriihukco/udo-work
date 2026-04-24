@@ -200,10 +200,12 @@ async function showMainMenu(
 
 /**
  * Handles invite token redemption from a /start?invite_xxx deep link.
+ * If the creator (admin) opens their own link, we show them a preview
+ * without consuming the token or changing their role/membership.
  */
 async function handleInviteRedeem(chatId: number, user: User, token: string): Promise<void> {
   try {
-    const result = await membershipService.redeemToken(token, user.id);
+    const result = await membershipService.redeemToken(token, user.id) as any;
 
     if (!result) {
       await telegramClient.sendMessage(
@@ -214,18 +216,28 @@ async function handleInviteRedeem(chatId: number, user: User, token: string): Pr
       return;
     }
 
-    const { project, role } = result;
+    const { project, role, isCreator } = result;
+
+    // Admin opened their own invite link — just show a preview, don't consume
+    if (isCreator) {
+      const roleLabel = role === 'admin' ? 'адміністратора' : 'співробітника';
+      await telegramClient.sendMessage(
+        chatId,
+        `👀 Це ваше власне запрошення до проєкту *${project.name}* (роль: ${roleLabel}).\n\n` +
+        `Посилання ще дійсне — надішліть його потрібній людині.`,
+        { parse_mode: 'Markdown' },
+      );
+      await showMainMenu(chatId, user.role, user.telegram_id ?? undefined);
+      return;
+    }
 
     // Safety guard: never downgrade an existing admin via an invite link.
-    // An admin who opens an employee invite keeps their admin role.
     const effectiveRole = user.role === 'admin' && role === 'employee' ? 'admin' : role;
 
-    // Only update role if it actually needs to change (and user isn't already admin)
     if (user.role !== effectiveRole) {
       await userService.updateRole(user.id, effectiveRole);
     }
 
-    // Add to project members
     await membershipService.addMember(project.id, user.id);
 
     const roleLabel = effectiveRole === 'admin' ? 'адміністратора' : 'співробітника';

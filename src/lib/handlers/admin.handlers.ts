@@ -937,29 +937,21 @@ export async function handleGenerateInviteLink(ctx: HandlerContext, projectId: s
     const link = await membershipService.createInviteLink(projectId, role, user.id);
     const roleLabel = role === 'admin' ? 'адміністратора' : 'співробітника';
     const roleEmoji = role === 'admin' ? '🔑' : '👷';
-    const inviteeLabel = role === 'admin' ? 'адміну' : 'співробітнику';
 
-    // Send as two separate messages:
-    // 1. Plain text with the raw link (no parse_mode — avoids URL escaping issues)
-    // 2. Inline keyboard with the share button
+    // Plain text — no parse_mode to avoid URL escaping issues with ? and =
     await reply(chatId, messageId,
       `🔗 Запрошення до проєкту\n\n` +
       `📁 Проєкт: ${project.name}\n` +
       `${roleEmoji} Роль: ${roleLabel}\n` +
       `⏳ Дійсне: 7 днів · одноразове\n\n` +
-      `Посилання:\n${link}\n\n` +
-      `Як запросити:\n` +
-      `1. Натисніть кнопку нижче або скопіюйте посилання\n` +
-      `2. Надішліть його ${inviteeLabel} у будь-якому месенджері\n` +
-      `3. Людина відкриває посилання — Telegram запускає бота\n` +
-      `4. Бот автоматично додає їх до проєкту як ${roleLabel}\n\n` +
-      `Посилання одноразове — після використання стає недійсним`,
+      `Скопіюйте посилання нижче та надішліть його ${roleLabel === 'адміністратора' ? 'новому адміну' : 'співробітнику'}:\n\n` +
+      `${link}\n\n` +
+      `Людина відкриває посилання → Telegram запускає бота → автоматично додається до проєкту.\n` +
+      `Посилання одноразове — після використання стає недійсним.`,
       {
-        // No parse_mode — plain text, no risk of Markdown parse errors on the URL
         reply_markup: {
           inline_keyboard: [
-            [{ text: `${roleEmoji} Поділитись запрошенням`, url: link }],
-            [{ text: '🔄 Згенерувати ще одне', callback_data: `invite_role:${projectId}:${role}` }],
+            [{ text: '🔄 Нове запрошення', callback_data: `invite_role:${projectId}:${role}` }],
             [{ text: '◀️ Головне меню', callback_data: 'action:back_to_main' }],
           ],
         },

@@ -192,7 +192,7 @@ export const membershipService: MembershipService = {
   async redeemToken(token: string, userId: string): Promise<{ project: Project; role: 'admin' | 'employee' } | null> {
     const { data, error } = await supabase
       .from('invite_tokens')
-      .select('token, project_id, role, used_by, expires_at, used_at')
+      .select('token, project_id, role, used_by, expires_at, used_at, created_by')
       .eq('token', token)
       .maybeSingle();
 
@@ -203,8 +203,12 @@ export const membershipService: MembershipService = {
 
     const row = data as any;
 
-    // Already used
-    if (row.used_by !== null) return null;
+    // If the creator (admin) opens their own link, don't consume it —
+    // return the result so they see the success screen, but skip marking as used.
+    const isCreator = row.created_by === userId;
+
+    // Already used by someone else
+    if (row.used_by !== null && !isCreator) return null;
 
     // Expired
     if (new Date(row.expires_at) < new Date()) return null;
@@ -221,11 +225,13 @@ export const membershipService: MembershipService = {
       return null;
     }
 
-    // Mark as used
-    await supabase
-      .from('invite_tokens')
-      .update({ used_by: userId, used_at: new Date().toISOString() })
-      .eq('token', token);
+    // Only mark as used if this is NOT the creator redeeming their own link
+    if (!isCreator) {
+      await supabase
+        .from('invite_tokens')
+        .update({ used_by: userId, used_at: new Date().toISOString() })
+        .eq('token', token);
+    }
 
     const project: Project = {
       id: projectData.id,
@@ -234,6 +240,6 @@ export const membershipService: MembershipService = {
       created_at: projectData.created_at,
     };
 
-    return { project, role: row.role as 'admin' | 'employee' };
+    return { project, role: row.role as 'admin' | 'employee', isCreator } as any;
   },
 };
